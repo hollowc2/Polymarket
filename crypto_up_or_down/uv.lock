@@ -17,9 +17,7 @@ members = [
     "polymarket-algo-data",
     "polymarket-algo-executor",
     "polymarket-algo-indicators",
-    "polymarket-algo-slowquant",
     "polymarket-algo-strategies",
-    "polymarket-algo-turtlequant",
     "polymarket-trading-toolkit",
 ]
 
@@ -1051,33 +1049,6 @@ requires-dist = [
 ]
 
 [[package]]
-name = "polymarket-algo-slowquant"
-version = "0.1.0"
-source = { editable = "packages/slowquant" }
-dependencies = [
-    { name = "numpy" },
-    { name = "pandas" },
-    { name = "polymarket-algo-core" },
-    { name = "polymarket-algo-data" },
-    { name = "polymarket-algo-turtlequant" },
-    { name = "python-dateutil" },
-    { name = "requests" },
-    { name = "scipy" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "numpy", specifier = ">=2.0.0" },
-    { name = "pandas", specifier = ">=3.0.0" },
-    { name = "polymarket-algo-core", editable = "packages/core" },
-    { name = "polymarket-algo-data", editable = "packages/data" },
-    { name = "polymarket-algo-turtlequant", editable = "packages/turtlequant" },
-    { name = "python-dateutil", specifier = ">=2.9.0" },
-    { name = "requests", specifier = ">=2.32.5" },
-    { name = "scipy", specifier = ">=1.13.0" },
-]
-
-[[package]]
 name = "polymarket-algo-strategies"
 version = "0.2.0"
 source = { editable = "packages/strategies" }
@@ -1094,31 +1065,6 @@ requires-dist = [
     { name = "polymarket-algo-core", editable = "packages/core" },
     { name = "polymarket-algo-indicators", editable = "packages/indicators" },
     { name = "scikit-learn", specifier = ">=1.5.0" },
-]
-
-[[package]]
-name = "polymarket-algo-turtlequant"
-version = "0.1.0"
-source = { editable = "packages/turtlequant" }
-dependencies = [
-    { name = "numpy" },
-    { name = "pandas" },
-    { name = "polymarket-algo-core" },
-    { name = "polymarket-algo-data" },
-    { name = "python-dateutil" },
-    { name = "requests" },
-    { name = "scipy" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "numpy", specifier = ">=2.0.0" },
-    { name = "pandas", specifier = ">=3.0.0" },
-    { name = "polymarket-algo-core", editable = "packages/core" },
-    { name = "polymarket-algo-data", editable = "packages/data" },
-    { name = "python-dateutil", specifier = ">=2.9.0" },
-    { name = "requests", specifier = ">=2.32.5" },
-    { name = "scipy", specifier = ">=1.13.0" },
 ]
 
 [[package]]

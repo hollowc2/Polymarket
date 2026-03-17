@@ -22,8 +22,6 @@ members = [
   "packages/strategies",
   "packages/backtest",
   "packages/executor",
-  "packages/turtlequant",
-  "packages/slowquant",
 ]
 
 [tool.uv.sources]
@@ -33,8 +31,6 @@ polymarket-algo-indicators = { workspace = true }
 polymarket-algo-strategies = { workspace = true }
 polymarket-algo-backtest = { workspace = true }
 polymarket-algo-executor = { workspace = true }
-polymarket-algo-turtlequant = { workspace = true }
-polymarket-algo-slowquant = { workspace = true }
 example-polymarket-strategy = { workspace = true }
 
 [tool.pytest.ini_options]
@@ -46,8 +42,6 @@ pythonpath = [
   "packages/strategies/src",
   "packages/backtest/src",
   "packages/executor/src",
-  "packages/turtlequant/src",
-  "packages/slowquant/src",
 ]
 testpaths = ["tests"]
 
