@@ -1,0 +1,459 @@
+x-bot-common: &bot-common
+  build:
+    context: .
+    dockerfile: Dockerfile
+  restart: unless-stopped
+  env_file:
+    - .env                                 # SCP'd to VPS manually, never committed to git
+  volumes:
+    - /opt/polymarket/state:/app/state     # trades.json, bot.log, history files
+    - /opt/polymarket/data:/app/data       # Binance OHLCV parquet files
+  logging:
+    driver: "json-file"
+    options:
+      max-size: "10m"
+      max-file: "5"
+
+services:
+
+  # ------------------------------------------------------------------ #
+  # Paper research bots — honest FOK simulation, no real money         #
+  # Active bots (2026-03-15):                                          #
+  #   reversal-trend-bot          — streak_reversal/eth/5m + TrendFilter(50) #
+  #   adx-eth-5m-bot              — streak_adx/eth/5m   + TrendFilter(50)   #
+  #   hl-orderflow-momo-5m-bot    — hl_orderflow_momentum/btc/5m            #
+  #   hl-orderflow-momo-15m-bot   — hl_orderflow_momentum/btc/15m           #
+  #   hl-orderflow-reversal-5m-bot — hl_orderflow_reversal/btc/5m           #
+  #   3barmomo-hl-5m-bot          — 3bar_momo/btc/5m + HL gate             #
+  #   pinbar-hl-5m-bot            — pin_bar_reversal/btc/5m + HL gate      #
+  #   delta-flip-btc-5m-bot       — delta_flip/btc/5m + 4h gate           #
+  # ------------------------------------------------------------------ #
+
+  # Config 0: streak_reversal/eth/5m — no gate, pure baseline
+  # Re-launched 2026-03-10 fresh (oracle-signal fix applied)
+  streak-bot:
+    <<: *bot-common
+    container_name: polymarket-streak-bot
+    command: ["uv", "run", "python", "scripts/bots/streak_bot.py", "--paper", "--asset", "eth"]
+    environment:
+      PAPER_TRADE: "true"
+      ASSET: "eth"
+      TRADES_FILE: "/app/state/trades.json"
+      HISTORY_FILE: "/app/state/trade_history_full.json"
+      LOG_FILE: "/app/state/bot.log"
+
+  # Config 1: streak_reversal/eth/5m + TrendFilter(ema=50, veto_with_trend)
+  # Walk-forward (2024-2026): test Sharpe 6.60 (close+spread), 6.07 (intrabar_conservative)
+  # ema=50 > ema=100 (6.60 vs 6.23); trigger=4; half_spread=0.005 baked into scoring
+  reversal-trend-bot:
+    <<: *bot-common
+    container_name: polymarket-reversal-trend-bot
+    command:
+      - "uv"
+      - "run"
+      - "python"
+      - "scripts/bots/streak_bot.py"
+      - "--paper"
+      - "--asset"
+      - "eth"
+      - "--timeframe"
+      - "5m"
+      - "--trigger"
+      - "4"
+      - "--strategy"
+      - "streak_reversal"
+      - "--gate"
+      - "trend_filter"
+      - "--ema-period"
+      - "50"
+    environment:
+      PAPER_TRADE: "true"
+      ASSET: "eth"
+      TIMEFRAME: "5m"
+      STRATEGY: "streak_reversal"
+      TRADES_FILE: "/app/state/reversal-trend-trades.json"
+      HISTORY_FILE: "/app/state/reversal-trend-history.json"
+      LOG_FILE: "/app/state/reversal-trend-bot.log"
+
+  # RETIRED 2026-03-09: trend+vol_accel combo — test Sharpe 7.99, same trade count as trend-only (8.06).
+  # Vol accel adds no meaningful edge after long_window fix; redundant container.
+  # reversal-trend-vol-accel-bot:
+  #   <<: *bot-common
+  #   container_name: polymarket-reversal-trend-vol-accel-bot
+  #   command:
+  #     - "uv"
+  #     - "run"
+  #     - "python"
+  #     - "scripts/bots/streak_bot.py"
+  #     - "--paper"
+  #     - "--asset"
+  #     - "eth"
+  #     - "--timeframe"
+  #     - "5m"
+  #     - "--trigger"
+  #     - "4"
+  #     - "--strategy"
+  #     - "streak_reversal"
+  #     - "--gate"
+  #     - "trend_vol_accel"
+  #     - "--ema-period"
+  #     - "50"
+  #     - "--vol-accel-threshold"
+  #     - "2.5"
+  #     - "--vol-accel-boost"
+  #     - "2.5"
+  #     - "--vol-accel-short-window"
+  #     - "12"
+  #     - "--vol-accel-long-window"
+  #     - "240"
+  #   environment:
+  #     PAPER_TRADE: "true"
+  #     ASSET: "eth"
+  #     TIMEFRAME: "5m"
+  #     STRATEGY: "streak_reversal"
+  #     TRADES_FILE: "/app/state/reversal-trend-vol-accel-trades.json"
+  #     HISTORY_FILE: "/app/state/reversal-trend-vol-accel-history.json"
+  #     LOG_FILE: "/app/state/reversal-trend-vol-accel-bot.log"
+
+  # RETIRED 2026-03-10: apex_hybrid/eth/5m — 67 live trades at -6.2% edge; no real edge confirmed.
+  # apex-hybrid-bot:
+  #   <<: *bot-common
+  #   container_name: polymarket-apex-hybrid-bot
+  #   command:
+  #     - "uv"
+  #     - "run"
+  #     - "python"
+  #     - "scripts/bots/apex_bot.py"
+  #     - "--paper"
+  #     - "--asset"
+  #     - "eth"
+  #     - "--timeframe"
+  #     - "5m"
+  #     - "--trigger"
+  #     - "4"
+  #     - "--w-tfi-exhaust"
+  #     - "1.0"
+  #     - "--exhaust-mult"
+  #     - "1.5"
+  #     - "--hawkes-threshold"
+  #     - "0.53"
+  #     - "--kelly-scale"
+  #     - "0.25"
+  #     - "--max-bet"
+  #     - "5"
+  #   environment:
+  #     PAPER_TRADE: "true"
+  #     ASSET: "eth"
+  #     TIMEFRAME: "5m"
+  #     TRADES_FILE: "/app/state/apex-hybrid-trades.json"
+  #     HISTORY_FILE: "/app/state/apex-hybrid-history.json"
+  #     LOG_FILE: "/app/state/apex-hybrid-bot.log"
+
+  # Config 2: streak_adx/eth/5m + TrendFilter(ema=50, veto_with_trend)
+  # Sweep (2026-03-10): test Sharpe 6.48, win 55.7%, 16.4k test trades
+  # Best params: trigger=4, adx_period=20, adx_threshold=30, ema=50
+  # Selected by TRAIN Sharpe (8.06) — no test leakage
+  adx-eth-5m-bot:
+    <<: *bot-common
+    container_name: polymarket-adx-eth-5m-bot
+    command:
+      - "uv"
+      - "run"
+      - "python"
+      - "scripts/bots/streak_bot.py"
+      - "--paper"
+      - "--asset"
+      - "eth"
+      - "--timeframe"
+      - "5m"
+      - "--trigger"
+      - "4"
+      - "--strategy"
+      - "streak_adx"
+      - "--gate"
+      - "trend_filter"
+      - "--ema-period"
+      - "50"
+      - "--adx-period"
+      - "20"
+      - "--adx-threshold"
+      - "30"
+    environment:
+      PAPER_TRADE: "true"
+      ASSET: "eth"
+      TIMEFRAME: "5m"
+      STRATEGY: "streak_adx"
+      TRADES_FILE: "/app/state/adx-eth-5m-trades.json"
+      HISTORY_FILE: "/app/state/adx-eth-5m-history.json"
+      LOG_FILE: "/app/state/adx-eth-5m-bot.log"
+
+  # RETIRED 2026-03-13: streak_adx/eth/15m — 46 live trades at -5.3% edge, Sharpe -0.91, sub-break-even.
+  # 15m timeframe produced negative live edge vs +5.8% on 5m. High variance, fewer trades, consistent losses.
+  # adx-eth-15m-bot:
+  #   <<: *bot-common
+  #   container_name: polymarket-adx-eth-15m-bot
+  #   command:
+  #     - "uv"
+  #     - "run"
+  #     - "python"
+  #     - "scripts/bots/streak_bot.py"
+  #     - "--paper"
+  #     - "--asset"
+  #     - "eth"
+  #     - "--timeframe"
+  #     - "15m"
+  #     - "--trigger"
+  #     - "3"
+  #     - "--strategy"
+  #     - "streak_adx"
+  #     - "--gate"
+  #     - "trend_filter"
+  #     - "--ema-period"
+  #     - "50"
+  #     - "--adx-period"
+  #     - "20"
+  #     - "--adx-threshold"
+  #     - "30"
+  #   environment:
+  #     PAPER_TRADE: "true"
+  #     ASSET: "eth"
+  #     TIMEFRAME: "15m"
+  #     STRATEGY: "streak_adx"
+  #     TRADES_FILE: "/app/state/adx-eth-15m-trades.json"
+  #     HISTORY_FILE: "/app/state/adx-eth-15m-history.json"
+  #     LOG_FILE: "/app/state/adx-eth-15m-bot.log"
+
+  # Config 4: turtlequant — digital option pricing on longer-term crypto markets
+  # Calibration passed (5yr BTC+ETH): Brier=0.178/0.199, RMSE=0.044/0.043
+  # Resolution oracle still needs manual verification before going live.
+  turtlequant-bot:
+    <<: *bot-common
+    container_name: polymarket-turtlequant-bot
+    command:
+      - "uv"
+      - "run"
+      - "python"
+      - "scripts/bots/turtlequant_bot.py"
+      - "--paper"
+      - "--asset"
+      - "btc,eth"
+    volumes:
+      - /opt/polymarket/state/turtlequant:/app/state/turtlequant
+      - /opt/polymarket/data:/app/data
+    environment:
+      PAPER_TRADE: "true"
+      ASSET: "btc,eth"
+      ENTRY_THRESHOLD: "0.05"
+      KELLY_FRACTION: "0.25"
+      STARTING_NAV: "100.0"
+      STATE_DIR: "/app/state/turtlequant"
+      LOG_FILE: "/app/state/turtlequant/turtlequant-bot.log"
+
+  # Config 5: slowquant — Merton jump-diffusion on short-dated BTC/ETH price threshold markets
+  # Calibration (3yr, 2026-03-10):
+  #   ETH: Brier=0.1749 (PASS), RMSE=0.0348 (PASS) — clean pass
+  #   BTC: Brier=0.1497 (PASS), RMSE=0.0502 (FAIL by 0.0002 — accepted; bias from 2023-2026 bull drift)
+  # Running paper bot; review after 2 weeks before considering live.
+  slowquant-bot:
+    <<: *bot-common
+    container_name: polymarket-slowquant-bot
+    command:
+      - "uv"
+      - "run"
+      - "python"
+      - "scripts/bots/slowquant_bot.py"
+      - "--paper"
+      - "--asset"
+      - "btc,eth"
+    volumes:
+      - /opt/polymarket/state/slowquant:/app/state/slowquant
+      - /opt/polymarket/data:/app/data
+    environment:
+      PAPER_TRADE: "true"
+      ASSET: "btc,eth"
+      STARTING_NAV: "100.0"
+      KELLY_FRACTION: "0.25"
+      N_SIMS: "50000"
+      STATE_DIR: "/app/state/slowquant"
+
+  # hl_orderflow_momo/btc/5m — cross-asset momentum from Hyperliquid perp order flow
+  # HTF gate (4h) + 2-of-3 entry vote (5m/15m/1h) + pressure-scaled sizing
+  # Live-only strategy: evaluate() fetches current HL data; no historical backtesting.
+  hl-orderflow-momo-5m-bot:
+    <<: *bot-common
+    container_name: polymarket-hl-orderflow-momo-5m-bot
+    command:
+      - "uv"
+      - "run"
+      - "python"
+      - "scripts/bots/hl_orderflow_bot.py"
+      - "--paper"
+      - "--asset"
+      - "btc"
+      - "--timeframe"
+      - "5m"
+      - "--size"
+      - "15.0"
+      - "--max-size"
+      - "30.0"
+      - "--min-votes"
+      - "2"
+    environment:
+      PAPER_TRADE: "true"
+      ASSET: "btc"
+      TIMEFRAME: "5m"
+      TRADES_FILE: "/app/state/hl-orderflow-momo-5m-trades.json"
+      HISTORY_FILE: "/app/state/hl-orderflow-momo-5m-history.json"
+      LOG_FILE: "/app/state/hl-orderflow-momo-5m-bot.log"
+
+  # hl_orderflow_momo/btc/15m — same signal, lower-frequency entries
+  hl-orderflow-momo-15m-bot:
+    <<: *bot-common
+    container_name: polymarket-hl-orderflow-momo-15m-bot
+    command:
+      - "uv"
+      - "run"
+      - "python"
+      - "scripts/bots/hl_orderflow_bot.py"
+      - "--paper"
+      - "--asset"
+      - "btc"
+      - "--timeframe"
+      - "15m"
+      - "--size"
+      - "15.0"
+      - "--max-size"
+      - "30.0"
+      - "--min-votes"
+      - "2"
+    environment:
+      PAPER_TRADE: "true"
+      ASSET: "btc"
+      TIMEFRAME: "15m"
+      TRADES_FILE: "/app/state/hl-orderflow-momo-15m-trades.json"
+      HISTORY_FILE: "/app/state/hl-orderflow-momo-15m-history.json"
+      LOG_FILE: "/app/state/hl-orderflow-momo-15m-bot.log"
+
+  # hl_orderflow_reversal/btc/5m — fade exhausted Hyperliquid perp flow (contrarian)
+  # Inverted HTF gate + 3-of-3 entry vote + pressure-scaled sizing
+  hl-orderflow-reversal-5m-bot:
+    <<: *bot-common
+    container_name: polymarket-hl-orderflow-reversal-5m-bot
+    command:
+      - "uv"
+      - "run"
+      - "python"
+      - "scripts/bots/hl_orderflow_bot.py"
+      - "--paper"
+      - "--asset"
+      - "btc"
+      - "--timeframe"
+      - "5m"
+      - "--strategy"
+      - "reversal"
+      - "--size"
+      - "15.0"
+      - "--max-size"
+      - "30.0"
+      - "--min-votes"
+      - "3"
+    environment:
+      PAPER_TRADE: "true"
+      ASSET: "btc"
+      TIMEFRAME: "5m"
+      TRADES_FILE: "/app/state/hl-orderflow-reversal-5m-trades.json"
+      HISTORY_FILE: "/app/state/hl-orderflow-reversal-5m-history.json"
+      LOG_FILE: "/app/state/hl-orderflow-reversal-5m-bot.log"
+
+  # 3barmomo/btc/5m + HL gate — momentum bot gated by Hyperliquid 5m+15m flow
+  # Only enters when HL perp flow does NOT strongly oppose the candle momentum
+  3barmomo-hl-5m-bot:
+    <<: *bot-common
+    container_name: polymarket-3barmomo-hl-5m-bot
+    command:
+      - "uv"
+      - "run"
+      - "python"
+      - "scripts/bots/3barmomo_bot.py"
+      - "--paper"
+      - "--bars"
+      - "3"
+      - "--hl-gate"
+      - "--hl-coin"
+      - "BTC"
+    environment:
+      PAPER_TRADE: "true"
+      TRADES_FILE: "/app/state/3barmomo-hl-5m-trades.json"
+      HISTORY_FILE: "/app/state/3barmomo-hl-5m-history.json"
+      LOG_FILE: "/app/state/3barmomo-hl-5m-bot.log"
+
+  # pinbar/btc/5m + HL gate — pin bar reversal gated by HL 5m flow
+  # Skips reversals when HL 5m perp flow strongly opposes the expected move
+  pinbar-hl-5m-bot:
+    <<: *bot-common
+    container_name: polymarket-pinbar-hl-5m-bot
+    command:
+      - "uv"
+      - "run"
+      - "python"
+      - "scripts/bots/pinbar_bot.py"
+      - "--paper"
+      - "--hl-gate"
+      - "--hl-coin"
+      - "BTC"
+    environment:
+      PAPER_TRADE: "true"
+      TRADES_FILE: "/app/state/pinbar-hl-5m-trades.json"
+      HISTORY_FILE: "/app/state/pinbar-hl-5m-history.json"
+      LOG_FILE: "/app/state/pinbar-hl-5m-bot.log"
+
+  # delta_flip/btc/5m — zero-crossing on Hyperliquid cumulative delta, gated by 4h
+  delta-flip-btc-5m-bot:
+    <<: *bot-common
+    container_name: polymarket-delta-flip-btc-5m-bot
+    command:
+      - "uv"
+      - "run"
+      - "python"
+      - "scripts/bots/delta_flip_bot.py"
+      - "--paper"
+      - "--asset"
+      - "btc"
+      - "--timeframe"
+      - "5m"
+      - "--gate-timeframe"
+      - "4h"
+      - "--size"
+      - "15.0"
+      - "--max-size"
+      - "30.0"
+    environment:
+      PAPER_TRADE: "true"
+      ASSET: "btc"
+      TIMEFRAME: "5m"
+      TRADES_FILE: "/app/state/delta-flip-btc-5m-trades.json"
+      HISTORY_FILE: "/app/state/delta-flip-btc-5m-history.json"
+      LOG_FILE: "/app/state/delta-flip-btc-5m-bot.log"
+
+  # --- Copy Bot (uncomment to enable) ---
+  # copy-bot:
+  #   <<: *bot-common
+  #   container_name: polymarket-copy-bot
+  #   command: ["uv", "run", "python", "scripts/bots/copybot.py"]
+  #   environment:
+  #     PAPER_TRADE: "true"
+  #     COPY_WALLETS: "0xTargetWalletHere"
+  #     TRADES_FILE: "/app/state/copybot-trades.json"
+  #     HISTORY_FILE: "/app/state/copybot-history.json"
+  #     LOG_FILE: "/app/state/copybot.log"
+
+  # --- New Bot Template (copy this block for each new bot) ---
+  # my-new-bot:
+  #   <<: *bot-common
+  #   container_name: polymarket-my-new-bot
+  #   command: ["uv", "run", "python", "scripts/bots/my_bot.py", "--paper"]
+  #   environment:
+  #     PAPER_TRADE: "true"
+  #     TRADES_FILE: "/app/state/my-bot-trades.json"
+  #     HISTORY_FILE: "/app/state/my-bot-history.json"
+  #     LOG_FILE: "/app/state/my-bot.log"

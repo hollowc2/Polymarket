@@ -1,0 +1,20 @@
+[project]
+name = "polymarket-algo-strategies"
+version = "0.2.0"
+requires-python = ">=3.13"
+dependencies = ["pandas>=3.0.0", "polymarket-algo-core", "polymarket-algo-indicators", "scikit-learn>=1.5.0"]
+
+[project.entry-points."polymarket_algo.strategies"]
+streak_reversal = "polymarket_algo.strategies:StreakReversalStrategy"
+candle_direction = "polymarket_algo.strategies:CandleDirectionStrategy"
+copytrade = "polymarket_algo.strategies:CopytradeStrategy"
+hl_orderflow_momentum = "polymarket_algo.strategies.hl_orderflow_momentum:HLOrderFlowMomentumStrategy"
+hl_orderflow_reversal = "polymarket_algo.strategies.hl_orderflow_reversal:HLOrderFlowReversalStrategy"
+delta_flip = "polymarket_algo.strategies.delta_flip:DeltaFlipStrategy"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/polymarket_algo"]
+
+[build-system]
+requires = ["hatchling>=1.25.0"]
+build-backend = "hatchling.build"

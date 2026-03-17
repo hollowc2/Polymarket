@@ -1,0 +1,1179 @@
+The single best Polymarket market type to trade (by far)—from a quant perspective—is:
+
+Short-Dated Price Threshold Markets
+(especially crypto weekly / daily thresholds)
+
+Example:
+
+Will BTC be above $75,000 on Friday at 16:00 UTC?
+
+These are effectively digital options with retail pricing.
+
+No other Polymarket category combines:
+
+clear mathematical valuation
+
+frequent liquidity
+
+repeatability
+
+retail mispricing
+
+Why These Markets Are So Good
+
+They satisfy four conditions quant traders look for.
+
+1. Deterministic Payoff
+
+The outcome is purely:
+
+BTC_price_at_time > strike
+
+Which means the probability can be computed using:
+
+volatility
+
+time remaining
+
+spot price
+
+Exactly like an option.
+
+2. Retail Traders Misprice Them
+
+Most Polymarket users estimate probability like this:
+
+BTC is close to the strike → 50%
+
+But the true probability depends heavily on:
+
+volatility × time
+
+Example:
+
+Variable	Value
+BTC price	74k
+Strike	75k
+Time left	2 days
+Volatility	70%
+
+Retail intuition:
+
+~45–50%
+
+Actual probability:
+
+~63%
+
+That's a 13% edge.
+
+3. Time Decay Creates Predictable Mispricing
+
+As expiration approaches:
+
+Probability evolves nonlinearly.
+
+Retail assumes linear changes.
+
+Example:
+
+12 hours before expiry:
+
+BTC	Strike	Retail price
+79.5k	80k	48%
+
+True probability may be:
+
+~30–35%
+
+Huge edge.
+
+4. Liquidity Is Concentrated
+
+Polymarket liquidity clusters around:
+
+weekly BTC targets
+
+round numbers
+
+monthly closes
+
+Example strikes:
+
+70k
+75k
+80k
+85k
+
+These markets are actively traded.
+
+Why They Beat Other Polymarket Markets
+
+Compare categories:
+
+Market Type	Quant Edge
+Political	very noisy
+Macro events	subjective
+Regulatory outcomes	insider info required
+Sports	sportsbooks already efficient
+Crypto price thresholds	quant modelable
+The Real Alpha: Volatility Mispricing
+
+Retail traders think in price levels.
+
+Quant traders think in distributions.
+
+The entire edge comes from:
+
+σ (volatility)
+
+Retail ignores it.
+
+Example Real Trade
+
+Market:
+
+BTC > $80k by Sunday
+
+Inputs:
+
+Variable	Value
+BTC	76k
+Time	5 days
+Volatility	65%
+
+Model output:
+
+P = 0.41
+
+Polymarket price:
+
+YES = 0.32
+
+Trade:
+
+buy YES
+
+Edge:
+
++9%
+The Second Hidden Edge
+
+This one is subtle but important.
+
+Polymarket traders anchor to round numbers.
+
+Example:
+
+BTC > $100k
+
+Even if mathematically the probability is:
+
+18%
+
+Market might price:
+
+10–12%
+
+Because $100k feels unlikely.
+
+This is a psychological bias.
+
+The Best Sub-Category
+
+The absolute sweet spot is:
+
+3–10 day expiry markets
+
+Why:
+
+Too short	Too long
+pure noise	drift dominates
+small edge	model uncertainty
+
+3–10 days gives:
+
+volatility-driven probability
+
+Which is exactly what you can model.
+
+What a Quant Desk Would Actually Trade
+
+They would scan for markets like:
+
+BTC > X by Friday
+ETH > Y by Friday
+BTC > X by end of month
+
+Then compute:
+
+P_model
+
+Then trade when:
+
+|P_model − P_market| > threshold
+Example Market Set
+
+You might have simultaneously:
+
+BTC > 75k
+BTC > 80k
+BTC > 85k
+BTC > 90k
+
+These produce a full probability curve.
+
+This is incredibly useful because you can detect:
+
+curve inconsistencies
+The Professional Strategy
+
+A quant desk would build a system that:
+
+Step 1
+
+Pull all Polymarket markets
+
+Step 2
+
+Identify price-threshold markets
+
+Step 3
+
+Extract:
+
+strike
+expiry
+asset
+Step 4
+
+Pull market data
+
+BTC price
+volatility
+time
+Step 5
+
+Compute probability
+
+Step 6
+
+Trade mispricing
+
+Expected Trade Frequency
+
+Realistic:
+
+10–30 opportunities per week
+
+Edge per trade:
+
+4–12%
+The Big Mistake Most Builders Make
+
+They try to trade:
+
+political events
+macro predictions
+news outcomes
+
+These are very hard to model.
+
+The real opportunity is:
+
+prediction markets pricing options badly
+
+
+
+Heres the model structure  
+
+Jump-Diffusion Monte Carlo Model (Merton-style)
+
+This captures the two things that dominate crypto:
+
+High volatility
+
+Large jumps
+
+1. Model Structure
+
+Price evolves as:
+
+dS/S = μ dt + σ dW + J dN
+
+Where:
+
+Term	Meaning
+μ	drift
+σ	diffusion volatility
+dW	Brownian motion
+dN	Poisson jump process
+J	jump size
+
+Meaning:
+
+Most of the time price moves normally:
+
+σ dW
+
+But occasionally:
+
+jump event
+
+This models:
+
+liquidations
+
+ETF news
+
+macro shocks
+
+exchange failures
+
+Which matter a lot for threshold probabilities.
+
+2. Jump Process
+
+Jump arrivals follow:
+
+N ~ Poisson(λT)
+
+Where:
+
+λ = jump frequency
+
+Example crypto parameters:
+
+Parameter	Typical
+λ	0.2–0.4 per week
+jump mean	±8%
+jump std	6–10%
+3. Jump Size Distribution
+
+Usually:
+
+log(J) ~ Normal(μj, σj)
+
+Example:
+
+μj = 0
+σj = 0.08
+
+Meaning jumps are around:
+
+±8%
+4. Why This Matters for Polymarket
+
+Consider market:
+
+BTC > 90k in 10 days
+
+Black-Scholes might say:
+
+4%
+
+Jump diffusion might say:
+
+9%
+
+Because one +15% jump makes it possible.
+
+Retail traders systematically underprice this.
+
+5. Monte Carlo Probability Calculation
+
+Instead of closed-form equations, desks simulate paths.
+
+Algorithm:
+
+simulate N price paths
+count how many finish above strike
+Pseudocode
+for i in range(N):
+
+    price = S0
+
+    for t in time_steps:
+
+        diffusion_move = sigma * sqrt(dt) * normal()
+
+        if random() < lambda * dt:
+            jump = normal(mu_j, sigma_j)
+        else:
+            jump = 0
+
+        price *= exp((mu - 0.5*sigma^2)*dt + diffusion_move + jump)
+
+    if price > strike:
+        success += 1
+
+Probability:
+
+P = success / N
+6. Inputs a Quant Desk Uses
+Spot price
+
+From a major exchange (often Binance).
+
+Volatility
+
+Better sources:
+
+Deribit options implied vol
+
+Or fallback:
+
+realized volatility (30d)
+Jump parameters
+
+Estimated from historical returns:
+
+Example:
+
+daily returns > 5%
+Time to expiry
+T = (expiry_time − now)
+
+in years.
+
+7. Parameter Calibration
+
+Desks estimate:
+
+Diffusion volatility
+σ = ATM implied volatility
+
+From options.
+
+Jump frequency
+
+Estimate:
+
+events where |return| > 5%
+
+Example BTC stats:
+
+Metric	Value
+σ	60–80%
+jump frequency	1 every 2–3 weeks
+jump size	5–15%
+8. Why Monte Carlo is Better
+
+Closed form models struggle with:
+
+irregular volatility
+
+jumps
+
+short time windows
+
+Monte Carlo handles:
+
+fat tails
+volatility clustering
+nonlinear payoff
+
+Perfect for:
+
+P(S_T > K)
+9. Performance
+
+You don't need massive compute.
+
+Example:
+
+50k simulations
+
+Runtime:
+
+< 0.1 sec
+
+On a normal laptop.
+
+Which is fine because Polymarket isn't HFT.
+
+10. Even Better Version (Pro Desk)
+
+Top desks combine:
+
+1. Monte Carlo diffusion
+2. Jump component
+3. Stochastic volatility
+
+Example:
+
+Heston + jumps
+
+But that’s overkill for Polymarket.
+
+11. Practical Model Stack
+
+If I were building your system I'd do:
+
+Layer 1 (fast)
+
+Black-Scholes probability.
+
+Layer 2 (accurate)
+
+Jump-diffusion Monte Carlo.
+
+Layer 3 (advanced)
+
+Volatility regime adjustment.
+
+Example:
+
+if realized vol rising:
+    increase σ
+12. Model Output
+
+For each market compute:
+
+P_model
+
+Then compare to:
+
+P_polymarket
+
+Edge:
+
+edge = P_model − price
+
+Trade when:
+
+|edge| > 0.05
+13. Why This Edge Exists
+
+Polymarket traders rarely price:
+
+volatility correctly
+
+fat tails
+
+jump risk
+
+nonlinear time decay
+
+They often just guess.
+
+You are essentially trading:
+
+options math vs intuition
+14. Biggest Edge Scenario
+
+The best trades happen when:
+
+market close to strike
+time remaining short
+volatility high
+
+Example:
+
+BTC = 79k
+strike = 80k
+time = 24h
+vol = 75%
+
+Retail says:
+
+~50%
+
+Model might say:
+
+~35%
+
+Huge trade.
+
+
+
+Probability CURVE
+
+1. Building a Probability Curve from Multiple Strike Markets
+
+When Polymarket lists markets like:
+
+BTC > 70k by June
+BTC > 75k by June
+BTC > 80k by June
+BTC > 85k by June
+BTC > 90k by June
+
+Each market gives you:
+
+P(S_T > K)
+
+Where:
+
+K = strike
+
+This is called the survival probability function.
+
+A professional desk will convert these prices into a full probability distribution of BTC at expiry.
+
+Step 1 — Collect Market Prices
+
+Example:
+
+Strike	YES Price
+70k	0.82
+75k	0.68
+80k	0.54
+85k	0.39
+90k	0.27
+
+These represent:
+
+P(S_T > K)
+Step 2 — Convert to Interval Probabilities
+
+Probability BTC ends between two strikes:
+
+P(K1 < S_T < K2)
+
+Computed as:
+
+P(S_T > K1) − P(S_T > K2)
+
+Example:
+
+P(75k–80k)
+= 0.68 − 0.54
+= 0.14
+
+Full table:
+
+Range	Probability
+<70k	0.18
+70–75k	0.14
+75–80k	0.14
+80–85k	0.15
+85–90k	0.12
+
+90k | 0.27 |
+
+This is essentially the market-implied distribution.
+
+Step 3 — Build the Market Probability Curve
+
+Plot:
+
+strike vs survival probability
+
+Which looks like a downward sloping curve.
+
+Professionally this is called:
+
+the implied CDF
+
+CDF = cumulative distribution function.
+
+Step 4 — Convert to Probability Density
+
+The probability density is:
+
+pdf(K) = − d/dK P(S_T > K)
+
+In practice:
+
+difference between adjacent strikes
+
+This tells you where the market thinks price will land.
+
+Step 5 — Compare to Your Model
+
+Your model generates its own probabilities:
+
+P_model(S_T > K)
+
+You now compare:
+
+market_curve vs model_curve
+
+Where they diverge = trading opportunities.
+
+Example Mispricing
+
+Market:
+
+Strike	Market P
+80k	0.54
+85k	0.39
+
+Model:
+
+Strike	Model P
+80k	0.50
+85k	0.30
+
+Market is too optimistic about upside tail.
+
+Trade:
+
+sell >85k
+buy <80k
+Step 6 — Curve Arbitrage
+
+Sometimes the curve itself is mathematically inconsistent.
+
+Example:
+
+Strike	Price
+80k	0.54
+85k	0.53
+
+This implies:
+
+P(80k–85k) = 1%
+
+Almost impossible.
+
+Trade structure:
+
+buy 80k YES
+sell 85k YES
+Why This Is Powerful
+
+Instead of trading single markets, you trade the entire probability distribution.
+
+This is exactly how options desks think.
+
+2. The Biggest Modeling Mistake (Destroys Profitability)
+
+Almost everyone building Polymarket bots makes this mistake:
+
+They assume constant volatility.
+
+Meaning they model:
+
+σ = constant
+
+Reality:
+
+σ changes constantly
+
+Especially in crypto.
+
+Why This Breaks Your Model
+
+Example:
+
+Market:
+
+BTC > 85k by Friday
+
+Your model uses:
+
+σ = 60%
+
+But if volatility suddenly rises to:
+
+σ = 90%
+
+The true probability explodes upward.
+
+Your model will:
+
+short upside tail
+
+Right before a massive move.
+
+This is how traders blow up.
+
+Professional Fix: Volatility Regime Model
+
+Instead of:
+
+σ = constant
+
+Use:
+
+σ = function(market conditions)
+Simple Regime Model
+
+Compute:
+
+realized_vol_7d
+realized_vol_30d
+
+Then classify:
+
+Regime	Condition
+Low vol	7d < 30d
+Normal	7d ≈ 30d
+High vol	7d > 1.4 × 30d
+
+Then scale σ.
+
+Example:
+
+if high_vol:
+    sigma = sigma * 1.3
+Even Better: Use Options Implied Vol
+
+Pull IV from crypto options.
+
+Example venue:
+
+Deribit
+
+Use:
+
+ATM implied volatility
+
+This captures the market’s volatility expectation.
+
+Second Common Modeling Mistake
+
+Ignoring time granularity.
+
+Bad model:
+
+daily steps
+
+Good model:
+
+hourly steps
+
+Why?
+
+Short-dated markets depend heavily on intraday volatility.
+
+Third Common Mistake
+
+Ignoring jump risk.
+
+Crypto moves:
+
++10%
+-12%
+
+In hours.
+
+Models without jumps underestimate tail probabilities.
+
+Which means you’ll:
+
+short rare events
+
+And eventually lose big.
+
+Professional Modeling Stack (Recommended)
+
+For your system:
+
+Layer 1 — Quick estimate
+
+Black-Scholes probability.
+
+Layer 2 — Accurate probability
+
+Jump diffusion Monte Carlo.
+
+Layer 3 — Market sanity check
+
+Compare to:
+
+polymarket probability curve
+Final Insight (Very Important)
+
+The best trades often appear when the curve is locally wrong.
+
+Example:
+
+Strike	Market
+80k	0.52
+85k	0.51
+
+This implies:
+
+3k range has almost zero probability
+
+Which is absurd.
+
+These trades can have:
+
+10–20% edge
+
+
+1. Role of the Volatility Acceleration Signal
+
+The signal is not the trade.
+
+It is a market regime trigger.
+
+Normal conditions:
+
+mispricings small
+markets roughly efficient
+
+During volatility spikes:
+
+probabilities move fast
+retail traders react slowly
+large mispricings appear
+
+Your system should only aggressively scan and trade when volatility accelerates.
+
+2. Detect the Volatility Spike
+
+Compute rolling realized volatility.
+
+Example:
+
+vol_5m  = std(log returns last 5 minutes)
+vol_1h  = std(log returns last 1 hour)
+vol_24h = std(log returns last 24 hours)
+
+Signal:
+
+vol_acceleration = vol_5m / vol_1h
+
+Trigger:
+
+vol_acceleration > 2
+
+Even stronger signal:
+
+vol_5m / vol_24h > 3
+
+This means something just moved the market.
+
+3. Activate High-Frequency Market Scanning
+
+When signal fires:
+
+Your system should immediately scan all relevant Polymarket markets.
+
+Specifically those linked to the asset moving.
+
+Example if BTC moves:
+
+Scan:
+
+BTC price targets
+BTC weekly close
+BTC monthly targets
+BTC directional markets
+
+Ignore unrelated markets.
+
+4. Focus Only on Markets Near the Strike
+
+Probability changes fastest when:
+
+price ≈ strike
+
+Filter markets:
+
+abs(price − strike) < 5%
+
+Example:
+
+BTC = 79k
+
+Relevant markets:
+
+BTC > 75k
+BTC > 80k
+BTC > 85k
+
+Ignore:
+
+BTC > 120k
+BTC > 200k
+5. Recompute Probabilities Immediately
+
+When price jumps, your model recomputes:
+
+P(S_T > K)
+
+Example:
+
+Before spike:
+
+BTC = 77k
+P(BTC > 80k) = 0.32
+
+After spike:
+
+BTC = 79.5k
+P(BTC > 80k) = 0.55
+
+Polymarket may still show:
+
+0.38
+
+Edge:
+
++17%
+
+Trade.
+
+6. Prioritize Short-Dated Markets
+
+Volatility spikes affect short-dated markets most.
+
+Best window:
+
+4 hours – 72 hours to expiry
+
+Why:
+
+small price change = huge probability shift
+
+Long-dated markets move slower.
+
+7. Trade Execution Strategy
+
+Never market buy blindly.
+
+Instead:
+
+Step 1
+
+calculate fair probability
+
+Step 2
+
+calculate expected edge
+
+Step 3
+
+Place limit orders inside the spread.
+
+Example:
+
+fair probability = 0.55
+market ask = 0.38
+
+Place:
+
+bid = 0.42
+
+Often gets filled by panic traders.
+
+8. Position Sizing During Volatility
+
+Volatility spikes also increase model error.
+
+So you reduce size.
+
+Example rule:
+
+max position per market = 1% NAV
+
+But if edge > 15%:
+
+increase to 2%
+9. Exit Strategy
+
+Your edge disappears when:
+
+Polymarket reprices
+
+Monitor:
+
+model_probability - market_probability
+
+If edge shrinks below:
+
+2%
+
+Exit.
+
+10. Multi-Strike Trading (Very Powerful)
+
+During spikes, multiple strikes become mispriced simultaneously.
+
+Example after BTC pump:
+
+Strike	Market	Model
+75k	0.92	0.97
+80k	0.38	0.55
+85k	0.21	0.40
+
+Trades:
+
+buy 80k YES
+buy 85k YES
+
+These often correct together.
+
+11. The Best Volatility Spike Scenario
+
+The highest edge trades appear when:
+
+price moves toward strike
+volatility spikes
+short time to expiry
+
+Example:
+
+BTC = 79.8k
+Strike = 80k
+Time = 24h
+
+Probability is extremely sensitive.
+
+Retail traders often misprice these badly.
+
+12. How Often This Happens
+
+Crypto volatility spikes:
+
+3–10 times per week
+
+Not all produce trades.
+
+But when they do, edges are large:
+
+5–20%
+13. System Architecture for This Strategy
+
+Your system loop should look like:
+
+monitor BTC price
+monitor volatility acceleration
+
+if spike detected:
+    scan polymarket markets
+    compute probabilities
+    identify edges
+    execute trades
+
+This approach:
+
+reduces noise
+focuses compute where edge exists
+14. Extra Enhancement (Very Powerful)
+
+Add liquidation data.
+turtlequant
+	
+OShGmZAv
+	
+rnsNYzrFsamYgi4bZ2kyP14Z14zc9WtuTqTb0dzDCqI
+When liquidations spike:
+
+large forced price moves follow
+
+Signals:
+
+binance liquidation volume
+funding rate spikes
+
+These often precede volatility acceleration.
+
+15. Key Insight
+
+Most traders try to constantly trade Polymarket.
+
+That is inefficient.
+
+The correct approach is:
+
+wait for volatility regime change
+then attack mispricings aggressively
+
+

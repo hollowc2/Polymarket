@@ -1,0 +1,6 @@
+processes:
+  copybot:
+    command: uv run python scripts/bots/copybot.py --wallets 0x1d0034134e339a309700ff2d34e99fa2d48b0313
+    working_dir: .
+    availability:
+      restart: on_failure

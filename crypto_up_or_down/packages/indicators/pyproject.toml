@@ -1,0 +1,20 @@
+[project]
+name = "polymarket-algo-indicators"
+version = "0.2.0"
+requires-python = ">=3.13"
+dependencies = ["pandas>=3.0.0", "requests>=2.28"]
+
+[project.entry-points."polymarket_algo.indicators"]
+ema = "polymarket_algo.indicators:EMAIndicator"
+sma = "polymarket_algo.indicators:SMAIndicator"
+rsi = "polymarket_algo.indicators:RSIIndicator"
+macd = "polymarket_algo.indicators:MACDIndicator"
+bollinger = "polymarket_algo.indicators:BollingerIndicator"
+hl_orderflow = "polymarket_algo.indicators:HLOrderFlowIndicator"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/polymarket_algo"]
+
+[build-system]
+requires = ["hatchling>=1.25.0"]
+build-backend = "hatchling.build"

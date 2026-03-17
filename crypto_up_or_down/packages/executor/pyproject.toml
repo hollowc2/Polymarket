@@ -1,0 +1,21 @@
+[project]
+name = "polymarket-algo-executor"
+version = "0.2.0"
+requires-python = ">=3.13"
+dependencies = [
+  "requests[socks]>=2.32.5",
+  "httpx[socks]>=0.27",
+  "urllib3>=2.0.0",
+  "websockets>=12.0",
+  "python-socks[asyncio]>=2.0",
+  "web3>=7.14.1",
+  "py-clob-client>=0.34.5",
+  "polymarket-algo-core>=0.2.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/polymarket_algo"]
+
+[build-system]
+requires = ["hatchling>=1.25.0"]
+build-backend = "hatchling.build"
