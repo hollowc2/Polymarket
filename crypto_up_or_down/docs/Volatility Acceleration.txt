@@ -1,0 +1,228 @@
+e best signal for detecting upcoming Polymarket mispricings during volatility spikes comes from a simple structural fact:
+
+Polymarket updates slowly because humans price it.
+Crypto markets update instantly because algorithms price them.
+
+So the exploitable signal is real-time volatility expansion in the underlying asset.
+
+Professional traders monitor this using realized volatility acceleration.
+
+The Signal: Volatility Acceleration
+
+Not just “volatility high”, but volatility suddenly increasing.
+
+Compute:
+
+volatility_ratio = short_term_vol / baseline_vol
+
+Where:
+
+short_term_vol = realized volatility over last 5–15 minutes
+baseline_vol   = realized volatility over last 24 hours
+Signal Trigger
+volatility_ratio > 2
+
+Meaning short-term volatility is double the normal level.
+
+When this happens:
+
+Polymarket probabilities lag
+
+because traders react manually.
+
+Why This Creates Mispricing
+
+Imagine this scenario.
+
+BTC moves:
+
++3.5% in 8 minutes
+
+Prediction market traders will:
+
+read Twitter
+
+think about implications
+
+manually place trades
+
+Meanwhile your model instantly recomputes:
+
+P(BTC > strike)
+
+This lag creates temporary mispricing windows.
+
+Typical duration:
+
+2–15 minutes
+
+Which is huge in trading terms.
+
+Example
+
+Market:
+
+BTC > $80k by Friday
+
+Before move:
+
+Variable	Value
+BTC price	77k
+Volatility	55%
+Probability	0.31
+
+Now BTC jumps to:
+
+79.5k
+
+New probability might be:
+
+0.54
+
+But Polymarket may still show:
+
+0.36
+
+Edge:
+
+18%
+
+These happen all the time during crypto spikes.
+
+The Key Insight
+
+Probability is very sensitive near the strike.
+
+When price approaches the strike:
+
+dP/dS becomes large
+
+Meaning small price moves cause huge probability shifts.
+
+Retail traders underestimate this.
+
+Professional Signal Stack
+
+A desk would combine three indicators.
+
+1. Real-Time Volatility Spike
+vol_5min / vol_24h > 2
+2. Distance to Strike
+abs(price - strike) < 5%
+
+Closer = stronger signal.
+
+3. Time Remaining
+
+Best window:
+
+4 hours – 3 days
+
+Short enough for volatility to dominate.
+
+When All Three Align
+
+This is the sweet spot.
+
+Example:
+
+BTC = 79.2k
+Strike = 80k
+Time = 36h
+Vol spike detected
+
+Probability will shift dramatically.
+
+Prediction markets usually lag.
+
+Even Better Signal: Orderbook Imbalance
+
+Another early indicator:
+
+Large aggressive buying or selling on exchanges.
+
+Compute:
+
+orderbook_imbalance =
+(bid_volume - ask_volume) /
+(bid_volume + ask_volume)
+
+If:
+
+imbalance > 0.6
+
+Strong directional pressure likely.
+
+Your model anticipates the move before it happens.
+
+Polymarket traders will react only after price moves.
+
+How a Quant System Uses This
+
+Your trading system runs continuously:
+
+monitor price
+monitor volatility
+monitor strike distance
+
+When spike occurs:
+
+recompute probabilities
+
+compare to Polymarket prices
+
+execute trades immediately
+
+Typical Trade Frequency
+
+Volatility spikes happen frequently in crypto.
+
+Realistic signals:
+
+3–10 per week
+
+But they produce the largest edges.
+
+Why This Works Long-Term
+
+Polymarket suffers from a structural limitation:
+
+humans price markets
+
+while crypto markets are priced by:
+
+algorithms
+
+This latency will always exist.
+
+Even large traders can't remove it fully because:
+
+liquidity is thin
+
+traders are fragmented
+
+information processing is slow
+
+What the Best Polymarket Traders Actually Do
+
+They run a system that constantly scans for:
+
+volatility acceleration
++
+price near strike
++
+short-dated markets
+
+This combination produces the highest Sharpe trades.
+
+If you're building a serious system, the next things you should implement are:
+
+1. Automatic Polymarket market discovery
+(scan the entire platform for tradeable markets)
+
+2. Strike clustering detection
+(find markets where multiple strikes imply inconsistent probabilities)
+
+3. A full automated scanner that outputs a ranked list of trades
+
+These three components are what turn a good model into an actual trading system.

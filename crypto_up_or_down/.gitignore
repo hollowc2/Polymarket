@@ -1,0 +1,16 @@
+.env
+.envrc
+.venv/
+.direnv/
+__pycache__/
+*.pyc
+trades.json
+bot.log
+.playwright-mcp/
+.DS_Store
+trade_history_full.json
+data/*.csv
+tmp/
+backtest_results/
+.ruff_cache/
+.pytest_cache/

@@ -1,0 +1,17 @@
+[
+  {
+    "asset": "eth",
+    "tf": "15m",
+    "cutoff": "2024-01-01",
+    "train_bars": 70075,
+    "test_bars": 76599,
+    "test_trades": 44268,
+    "test_win_rate": 0.542942983645071,
+    "test_sharpe": -0.5443167636333304,
+    "test_total_pnl": -0.4327562842491348,
+    "train_trades": 37841,
+    "train_win_rate": 0.5509896672920905,
+    "train_sharpe": -1.363070795694181,
+    "model_path": "/mnt/Files/Projects/Python/PolyMarket_projects/polymarket_auto_trader/models/apex_ml_eth_15m.json"
+  }
+]

@@ -1,0 +1,91 @@
+[project]
+name = "polymarket-trading-toolkit"
+version = "0.2.0"
+description = "Composable Polymarket Trading Toolkit"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = []
+
+[dependency-groups]
+dev = [
+  "pytest>=8.0",
+  "pre-commit>=4.0",
+  "ruff>=0.15.0",
+  "ty>=0.0.16",
+]
+
+[tool.uv.workspace]
+members = [
+  "packages/core",
+  "packages/data",
+  "packages/indicators",
+  "packages/strategies",
+  "packages/backtest",
+  "packages/executor",
+  "packages/turtlequant",
+  "packages/slowquant",
+]
+
+[tool.uv.sources]
+polymarket-algo-core = { workspace = true }
+polymarket-algo-data = { workspace = true }
+polymarket-algo-indicators = { workspace = true }
+polymarket-algo-strategies = { workspace = true }
+polymarket-algo-backtest = { workspace = true }
+polymarket-algo-executor = { workspace = true }
+polymarket-algo-turtlequant = { workspace = true }
+polymarket-algo-slowquant = { workspace = true }
+example-polymarket-strategy = { workspace = true }
+
+[tool.pytest.ini_options]
+pythonpath = [
+  ".",
+  "packages/core/src",
+  "packages/data/src",
+  "packages/indicators/src",
+  "packages/strategies/src",
+  "packages/backtest/src",
+  "packages/executor/src",
+  "packages/turtlequant/src",
+  "packages/slowquant/src",
+]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+# Legacy files — don't enforce line length
+"bot.py" = ["E501"]
+"copybot.py" = ["E501"]
+"copybot_v2.py" = ["E501"]
+"trader.py" = ["E501", "B904", "B007"]
+"backtest.py" = ["E501"]
+"polymarket.py" = ["E501"]
+"polymarket_ws.py" = ["E501", "E741"]
+"resilience.py" = ["E501", "B018"]
+"logging_config.py" = ["E501"]
+"copytrade_ws.py" = ["E501"]
+"config.py" = ["E501"]
+"history.py" = ["E501"]
+"selective_filter.py" = ["E501"]
+# Migrated copies in packages (will clean up in future)
+"packages/executor/**" = ["E501", "F403", "E741", "B904", "B018", "B007"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.pyright]
+pythonVersion = "3.13"
+typeCheckingMode = "basic"
+include = [
+  "packages",
+  "scripts",
+  "tests",
+]
+

@@ -1,0 +1,12 @@
+[project]
+name = "polymarket-algo-backtest"
+version = "0.2.0"
+requires-python = ">=3.13"
+dependencies = ["numpy>=2.4.2", "pandas>=3.0.0", "polymarket-algo-core"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/polymarket_algo"]
+
+[build-system]
+requires = ["hatchling>=1.25.0"]
+build-backend = "hatchling.build"

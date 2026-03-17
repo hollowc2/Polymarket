@@ -1,0 +1,36 @@
+{
+  "nav": 100.0,
+  "updated_at": "2026-03-10T14:09:44.681264+00:00",
+  "positions": [
+    {
+      "market_id": "701552",
+      "question": "Will Ethereum dip to $1,500 by December 31, 2026?",
+      "asset": "eth",
+      "strike": 1500.0,
+      "expiry_iso": "2027-01-01T05:00:00+00:00",
+      "option_type": "barrier_down",
+      "yes_token_id": "",
+      "entry_price": 0.715,
+      "size_usd": 2.0,
+      "model_prob_at_entry": 0.768597246344306,
+      "edge_at_entry": 0.05359724634430607,
+      "opened_at": "2026-03-09T19:33:33.147171+00:00",
+      "fill_confirmed": false
+    },
+    {
+      "market_id": "1473076",
+      "question": "Will Ethereum dip to $1,800 in March?",
+      "asset": "eth",
+      "strike": 1800.0,
+      "expiry_iso": "2026-04-01T04:00:00+00:00",
+      "option_type": "barrier_down",
+      "yes_token_id": "",
+      "entry_price": 0.445,
+      "size_usd": 2.0,
+      "model_prob_at_entry": 0.5521127874417386,
+      "edge_at_entry": 0.10711278744173863,
+      "opened_at": "2026-03-09T19:33:33.703934+00:00",
+      "fill_confirmed": false
+    }
+  ]
+}

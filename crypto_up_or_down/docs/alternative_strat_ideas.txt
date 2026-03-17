@@ -1,0 +1,351 @@
+Below are five real strategy classes used by serious Polymarket traders, followed by what is likely the single biggest structural inefficiency on the platform.
+
+These are the kinds of things a prop desk or prediction market quant would actually run.
+
+I'll organize them like tradable playbooks, not just ideas.
+
+5 Polymarket Quant Strategies
+1. Market Probability vs Derivatives Pricing
+(The one we already discussed)
+
+Core idea
+
+Prediction markets frequently misprice events that are functions of asset prices.
+
+Example market:
+
+BTC above $80k by April 1
+
+Retail traders estimate probability poorly.
+
+But the probability is computable using:
+
+volatility
+
+time
+
+strike
+
+spot price
+
+Exactly like a digital option.
+
+Signal
+edge = model_probability − polymarket_price
+
+Trade if:
+
+|edge| > 5%
+Alpha source
+
+Retail traders:
+
+underestimate volatility
+
+misunderstand probability distributions
+
+extrapolate linearly
+
+Best markets
+BTC price targets
+ETH price targets
+weekly direction
+monthly targets
+Frequency
+5–20 trades per week
+2. Cross-Market Arbitrage
+(Huge inefficiency)
+
+Polymarket often lists multiple markets that must sum to 100%.
+
+Example:
+
+Market A:
+BTC above 80k by March 31
+
+Market B:
+BTC above 85k by March 31
+
+Logical constraint:
+
+P(>85k) ≤ P(>80k)
+
+But sometimes:
+
+>80k = 0.40
+>85k = 0.38
+
+This implies:
+
+P(80k–85k) = 2%
+
+Which is often wrong.
+
+Trade structure
+
+Buy:
+
+YES >80k
+NO >85k
+
+This synthetically creates:
+
+BTC between 80k and 85k
+
+Often priced incorrectly.
+
+Why it exists
+
+Polymarket markets are priced independently.
+
+There is no market maker enforcing consistency.
+
+3. Resolution Time Decay
+(Massive retail mistake)
+
+Probability changes non-linearly as time approaches.
+
+Retail traders assume linear decay.
+
+Example:
+
+Market:
+
+BTC above 80k by Friday
+
+Thursday night:
+
+price = 79.5k
+
+Retail says:
+
+50%
+
+But actual probability depends on:
+
+remaining volatility
+hours remaining
+
+Which may be:
+
+32%
+Signal
+
+Compute:
+
+model_probability(t)
+
+Then trade when:
+
+|model − market| > threshold
+Best markets
+
+Short expiry markets:
+
+<72 hours
+4. Liquidity Shock Lag
+(very real)
+
+When crypto moves fast, Polymarket lags Binance.
+
+Example:
+
+BTC jumps:
+
++4% in 10 minutes
+
+Prediction markets adjust slowly.
+
+Retail traders update manually.
+
+Trade
+
+Detect rapid price move:
+
+BTC move > 2%
+
+Then recompute probability.
+
+Trade mispriced markets.
+
+Typical edge
+5–20% temporary mispricing
+Duration
+2–10 minutes
+Hardware needed
+
+None.
+
+Speed matters much less than HFT.
+
+5. Correlated Market Arbitrage
+
+Polymarket often lists related markets.
+
+Example:
+
+BTC above 80k this month
+BTC above 80k this year
+
+Logical constraint:
+
+P(month) ≤ P(year)
+
+Sometimes violated.
+
+Another example:
+
+ETH > $5k this year
+BTC > $100k this year
+
+These events are correlated.
+
+But markets price them independently.
+
+Trade
+
+Build correlation model:
+
+ρ(BTC, ETH)
+
+Then detect inconsistent probabilities.
+
+Example
+
+Market says:
+
+BTC > 100k = 60%
+ETH > 5k = 20%
+
+But historically ETH moves with BTC.
+
+That may be inconsistent.
+
+The Single Biggest Polymarket Inefficiency
+
+This one is much bigger than people realize.
+
+Structural Inefficiency: Retail Probability Bias
+
+Retail traders systematically misprice tail probabilities.
+
+They assume price distributions look like this:
+
+normal distribution
+
+But crypto actually looks like:
+
+fat-tailed distribution
+
+Meaning:
+
+extreme moves happen far more often
+What retail believes
+P(BTC +30% in a month) ≈ 2%
+Reality
+
+Historically closer to:
+
+10–15%
+Result
+
+Polymarket often dramatically underprices extreme outcomes.
+
+Example market:
+
+BTC > $120k this year
+
+Market price:
+
+3%
+
+Model probability:
+
+8%
+Trade
+
+Always scan for:
+
+long-tail events
+
+Examples:
+
+BTC > huge number
+ETH > huge number
+volatility spikes
+crypto ETF approvals
+Why this works
+
+Human psychology hates extreme outcomes.
+
+People underweight:
+
+rare but possible events
+
+This is a well documented behavioral bias.
+
+The Strategy Stack I Would Actually Run
+
+If I were building a small quant Polymarket desk, I'd combine:
+
+Layer 1
+
+Digital option probability model
+
+(trades 1)
+
+Layer 2
+
+Cross-market arbitrage
+
+(trades 2)
+
+Layer 3
+
+Time decay mispricing
+
+(trades 3)
+
+Layer 4
+
+Liquidity shock trades
+
+(trades 4)
+
+Layer 5
+
+Long-tail bets
+
+(trades 5)
+
+Together this creates:
+
+multi-alpha portfolio
+
+instead of relying on one signal.
+
+Realistic Edge Expectation
+
+If done well:
+
+average edge per trade: 4–12%
+
+But hit rate might be:
+
+55–65%
+
+Which is normal.
+
+Final Reality Check
+
+The real competition on Polymarket is:
+
+small crypto quant funds
+
+Not HFT firms.
+
+Most participants are still:
+
+retail + political bettors
+
+Which means inefficiencies exist.
