@@ -11,7 +11,7 @@ Composable Python toolkit for backtesting and live execution on Polymarket BTC/E
 FingerBlaster — Polymarket trading suite.
 
 ### `turtlequant/`
-Future project — placeholder.
+Standalone probabilistic pricing bots for longer-dated Polymarket crypto markets. TurtleQuant prices digital/barrier options using Black-Scholes + Deribit IV surface. SlowQuant prices short-dated price threshold markets using Merton jump-diffusion. Both run as independent Docker services.
 
 ## Setup
 
