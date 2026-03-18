@@ -9,3 +9,5 @@ dist/
 .coverage
 *.parquet
 .claude/
+*.log.old
+*.log
