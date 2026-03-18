@@ -223,59 +223,6 @@ services:
   #     HISTORY_FILE: "/app/state/adx-eth-15m-history.json"
   #     LOG_FILE: "/app/state/adx-eth-15m-bot.log"
 
-  # Config 4: turtlequant — digital option pricing on longer-term crypto markets
-  # Calibration passed (5yr BTC+ETH): Brier=0.178/0.199, RMSE=0.044/0.043
-  # Resolution oracle still needs manual verification before going live.
-  turtlequant-bot:
-    <<: *bot-common
-    container_name: polymarket-turtlequant-bot
-    command:
-      - "uv"
-      - "run"
-      - "python"
-      - "scripts/bots/turtlequant_bot.py"
-      - "--paper"
-      - "--asset"
-      - "btc,eth"
-    volumes:
-      - /opt/polymarket/state/turtlequant:/app/state/turtlequant
-      - /opt/polymarket/data:/app/data
-    environment:
-      PAPER_TRADE: "true"
-      ASSET: "btc,eth"
-      ENTRY_THRESHOLD: "0.05"
-      KELLY_FRACTION: "0.25"
-      STARTING_NAV: "100.0"
-      STATE_DIR: "/app/state/turtlequant"
-      LOG_FILE: "/app/state/turtlequant/turtlequant-bot.log"
-
-  # Config 5: slowquant — Merton jump-diffusion on short-dated BTC/ETH price threshold markets
-  # Calibration (3yr, 2026-03-10):
-  #   ETH: Brier=0.1749 (PASS), RMSE=0.0348 (PASS) — clean pass
-  #   BTC: Brier=0.1497 (PASS), RMSE=0.0502 (FAIL by 0.0002 — accepted; bias from 2023-2026 bull drift)
-  # Running paper bot; review after 2 weeks before considering live.
-  slowquant-bot:
-    <<: *bot-common
-    container_name: polymarket-slowquant-bot
-    command:
-      - "uv"
-      - "run"
-      - "python"
-      - "scripts/bots/slowquant_bot.py"
-      - "--paper"
-      - "--asset"
-      - "btc,eth"
-    volumes:
-      - /opt/polymarket/state/slowquant:/app/state/slowquant
-      - /opt/polymarket/data:/app/data
-    environment:
-      PAPER_TRADE: "true"
-      ASSET: "btc,eth"
-      STARTING_NAV: "100.0"
-      KELLY_FRACTION: "0.25"
-      N_SIMS: "50000"
-      STATE_DIR: "/app/state/slowquant"
-
   # hl_orderflow_momo/btc/5m — cross-asset momentum from Hyperliquid perp order flow
   # HTF gate (4h) + 2-of-3 entry vote (5m/15m/1h) + pressure-scaled sizing
   # Live-only strategy: evaluate() fetches current HL data; no historical backtesting.

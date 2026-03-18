@@ -20,9 +20,6 @@ COPY packages/indicators/pyproject.toml      packages/indicators/pyproject.toml
 COPY packages/strategies/pyproject.toml      packages/strategies/pyproject.toml
 COPY packages/backtest/pyproject.toml        packages/backtest/pyproject.toml
 COPY packages/executor/pyproject.toml        packages/executor/pyproject.toml
-COPY packages/turtlequant/pyproject.toml     packages/turtlequant/pyproject.toml
-COPY packages/slowquant/pyproject.toml       packages/slowquant/pyproject.toml
-
 # Stub src dirs so uv can resolve workspace members before source is copied
 RUN mkdir -p \
     packages/core/src/polymarket_algo/core \
@@ -30,9 +27,7 @@ RUN mkdir -p \
     packages/indicators/src/polymarket_algo/indicators \
     packages/strategies/src/polymarket_algo/strategies \
     packages/backtest/src/polymarket_algo/backtest \
-    packages/executor/src/polymarket_algo/executor \
-    packages/turtlequant/src/polymarket_algo/turtlequant \
-    packages/slowquant/src/polymarket_algo/slowquant
+    packages/executor/src/polymarket_algo/executor
 
 # Install all third-party deps from lockfile (no dev deps)
 # --frozen: never re-resolve, fail if lockfile is stale
