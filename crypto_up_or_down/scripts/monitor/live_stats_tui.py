@@ -19,6 +19,8 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import subprocess
+import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -29,21 +31,81 @@ from textual.binding import Binding  # type: ignore[import-untyped]
 from textual.containers import Container  # type: ignore[import-untyped]
 from textual.widgets import DataTable, Footer, Static  # type: ignore[import-untyped]
 
-# ── Bot registry ──────────────────────────────────────────────────────────────
-
-BOTS = [
-    {"label": "streak-bot (baseline)", "file": "trade_history_full.json"},
-    {"label": "reversal+trend (5m)", "file": "reversal-trend-history.json"},
-    {"label": "adx-eth-5m", "file": "adx-eth-5m-history.json"},
-    {"label": "hl-momo-btc-5m", "file": "hl-orderflow-momo-5m-history.json"},
-    {"label": "hl-momo-btc-15m", "file": "hl-orderflow-momo-15m-history.json"},
-    {"label": "hl-reversal-btc-5m", "file": "hl-orderflow-reversal-5m-history.json"},
-    {"label": "3barmomo-hl-5m", "file": "3barmomo-hl-5m-history.json"},
-    {"label": "3barmomo-5m-scale", "file": "3barmomo-5m-scale-history.json"},
-    {"label": "pinbar-hl-5m", "file": "pinbar-hl-5m-history.json"},
-]
+# ── Bot discovery ─────────────────────────────────────────────────────────────
 
 DEFAULT_STATE_DIR = "/opt/polymarket/state"
+
+# Special-case filenames that don't follow the `{name}-history.json` convention
+_SPECIAL_LABELS: dict[str, str] = {
+    "trade_history_full.json": "streak-bot",
+}
+
+_container_cache: list[dict] = []
+_container_cache_ts: float = 0.0
+_CONTAINER_CACHE_TTL = 30.0  # seconds
+
+
+def _label_from_filename(fname: str) -> str:
+    if fname in _SPECIAL_LABELS:
+        return _SPECIAL_LABELS[fname]
+    return fname.removesuffix("-history.json")
+
+
+def _bots_from_containers() -> list[dict]:
+    """Query running polymarket-* containers for HISTORY_FILE env var (cached 30s)."""
+    global _container_cache, _container_cache_ts
+    now = time.monotonic()
+    if now - _container_cache_ts < _CONTAINER_CACHE_TTL:
+        return _container_cache
+    result: list[dict] = []
+    try:
+        names = subprocess.check_output(
+            ["docker", "ps", "--format", "{{.Names}}"],
+            timeout=3, stderr=subprocess.DEVNULL,
+        ).decode().strip().splitlines()
+        for name in names:
+            if not name.startswith("polymarket-"):
+                continue
+            env_out = subprocess.check_output(
+                ["docker", "inspect", "--format",
+                 "{{range .Config.Env}}{{println .}}{{end}}", name],
+                timeout=3, stderr=subprocess.DEVNULL,
+            ).decode()
+            for line in env_out.splitlines():
+                if line.startswith("HISTORY_FILE="):
+                    fname = Path(line.split("=", 1)[1].strip()).name
+                    result.append({"label": _label_from_filename(fname), "file": fname})
+                    break
+    except Exception:
+        pass
+    _container_cache = result
+    _container_cache_ts = now
+    return result
+
+
+def discover_bots(state_dir: Path) -> list[dict]:
+    """Return sorted bot list from state files + running containers.
+
+    State files are scanned on every call (fast glob).
+    Container check is cached for 30 s so it doesn't block the TUI.
+    """
+    seen: dict[str, str] = {}  # filename -> label
+
+    # Existing history files in state dir
+    for path in state_dir.glob("*-history.json"):
+        seen[path.name] = _label_from_filename(path.name)
+    special = "trade_history_full.json"
+    if (state_dir / special).exists():
+        seen[special] = _label_from_filename(special)
+
+    # Running containers — catches new bots before their first trade
+    for bot in _bots_from_containers():
+        seen.setdefault(bot["file"], bot["label"])
+
+    return sorted(
+        [{"label": label, "file": fname} for fname, label in seen.items()],
+        key=lambda b: b["label"],
+    )
 REFRESH_SECONDS = 5
 
 # ── Data model ────────────────────────────────────────────────────────────────
@@ -390,7 +452,7 @@ class LiveStatsTUI(App):
         super().__init__()
         self.state_dir = state_dir
         self._all_stats: list[BotStats] = []
-        self._selected_label: str = BOTS[0]["label"]
+        self._selected_label: str = ""
 
     def compose(self) -> ComposeResult:
         yield Static("", id="statusbar")
@@ -447,13 +509,17 @@ class LiveStatsTUI(App):
     # ── Data loading ──────────────────────────────────────────────────────────
 
     def load_data(self) -> None:
+        bots = discover_bots(self.state_dir)
         stats: list[BotStats] = []
-        for bot in BOTS:
+        for bot in bots:
             path = self.state_dir / bot["file"]
             raw = load_raw(path)
             trades = parse_trades(raw)
             stats.append(BotStats(label=bot["label"], trades=trades, missing=not path.exists()))
         self._all_stats = stats
+        # Reset selection if the previously selected bot has disappeared
+        if self._selected_label not in {s.label for s in stats} and stats:
+            self._selected_label = stats[0].label
         self._redraw_leaderboard()
         self._redraw_trades()
         self._update_statusbar()
@@ -570,7 +636,7 @@ class LiveStatsTUI(App):
         files = sum(1 for s in self._all_stats if not s.missing)
         bar.update(
             f"  State: {self.state_dir}  │  "
-            f"Files: {files}/{len(BOTS)}  │  "
+            f"Files: {files}/{len(self._all_stats)}  │  "
             f"Trades: {total}  │  "
             f"Refresh: {REFRESH_SECONDS}s  │  "
             f"{now}"
