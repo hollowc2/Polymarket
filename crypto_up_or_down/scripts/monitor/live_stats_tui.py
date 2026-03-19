@@ -39,8 +39,8 @@ BOTS = [
     {"label": "hl-momo-btc-15m", "file": "hl-orderflow-momo-15m-history.json"},
     {"label": "hl-reversal-btc-5m", "file": "hl-orderflow-reversal-5m-history.json"},
     {"label": "3barmomo-hl-5m", "file": "3barmomo-hl-5m-history.json"},
+    {"label": "3barmomo-5m-scale", "file": "3barmomo-5m-scale-history.json"},
     {"label": "pinbar-hl-5m", "file": "pinbar-hl-5m-history.json"},
-    {"label": "delta-flip-btc-5m", "file": "delta-flip-btc-5m-history.json"},
 ]
 
 DEFAULT_STATE_DIR = "/opt/polymarket/state"
