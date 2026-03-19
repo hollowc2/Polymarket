@@ -25,8 +25,8 @@ services:
   #   hl-orderflow-momo-15m-bot   — hl_orderflow_momentum/btc/15m           #
   #   hl-orderflow-reversal-5m-bot — hl_orderflow_reversal/btc/5m           #
   #   3barmomo-hl-5m-bot          — 3bar_momo/btc/5m + HL gate             #
+  #   3barmomo-5m-scale-bot       — 3bar_momo/btc/5m + HL pressure sizing  #
   #   pinbar-hl-5m-bot            — pin_bar_reversal/btc/5m + HL gate      #
-  #   delta-flip-btc-5m-bot       — delta_flip/btc/5m + 4h gate           #
   # ------------------------------------------------------------------ #
 
   # Config 0: streak_reversal/eth/5m — no gate, pure baseline
@@ -334,6 +334,32 @@ services:
       HISTORY_FILE: "/app/state/3barmomo-hl-5m-history.json"
       LOG_FILE: "/app/state/3barmomo-hl-5m-bot.log"
 
+  # 3barmomo/btc/5m + HL pressure sizing — same signal as 3barmomo-hl-5m,
+  # position size scales with HL buy/sell pressure (base×pressure×2, capped at max_size)
+  3barmomo-5m-scale-bot:
+    <<: *bot-common
+    container_name: polymarket-3barmomo-5m-scale-bot
+    command:
+      - "uv"
+      - "run"
+      - "python"
+      - "scripts/bots/3barmomo_scale_bot.py"
+      - "--paper"
+      - "--bars"
+      - "3"
+      - "--hl-gate"
+      - "--hl-coin"
+      - "BTC"
+      - "--size"
+      - "15.0"
+      - "--max-size"
+      - "30.0"
+    environment:
+      PAPER_TRADE: "true"
+      TRADES_FILE: "/app/state/3barmomo-5m-scale-trades.json"
+      HISTORY_FILE: "/app/state/3barmomo-5m-scale-history.json"
+      LOG_FILE: "/app/state/3barmomo-5m-scale-bot.log"
+
   # pinbar/btc/5m + HL gate — pin bar reversal gated by HL 5m flow
   # Skips reversals when HL 5m perp flow strongly opposes the expected move
   pinbar-hl-5m-bot:
@@ -354,33 +380,33 @@ services:
       HISTORY_FILE: "/app/state/pinbar-hl-5m-history.json"
       LOG_FILE: "/app/state/pinbar-hl-5m-bot.log"
 
-  # delta_flip/btc/5m — zero-crossing on Hyperliquid cumulative delta, gated by 4h
-  delta-flip-btc-5m-bot:
-    <<: *bot-common
-    container_name: polymarket-delta-flip-btc-5m-bot
-    command:
-      - "uv"
-      - "run"
-      - "python"
-      - "scripts/bots/delta_flip_bot.py"
-      - "--paper"
-      - "--asset"
-      - "btc"
-      - "--timeframe"
-      - "5m"
-      - "--gate-timeframe"
-      - "4h"
-      - "--size"
-      - "15.0"
-      - "--max-size"
-      - "30.0"
-    environment:
-      PAPER_TRADE: "true"
-      ASSET: "btc"
-      TIMEFRAME: "5m"
-      TRADES_FILE: "/app/state/delta-flip-btc-5m-trades.json"
-      HISTORY_FILE: "/app/state/delta-flip-btc-5m-history.json"
-      LOG_FILE: "/app/state/delta-flip-btc-5m-bot.log"
+  # RETIRED 2026-03-19: delta_flip/btc/5m — unacceptable max drawdown.
+  # delta-flip-btc-5m-bot:
+  #   <<: *bot-common
+  #   container_name: polymarket-delta-flip-btc-5m-bot
+  #   command:
+  #     - "uv"
+  #     - "run"
+  #     - "python"
+  #     - "scripts/bots/delta_flip_bot.py"
+  #     - "--paper"
+  #     - "--asset"
+  #     - "btc"
+  #     - "--timeframe"
+  #     - "5m"
+  #     - "--gate-timeframe"
+  #     - "4h"
+  #     - "--size"
+  #     - "15.0"
+  #     - "--max-size"
+  #     - "30.0"
+  #   environment:
+  #     PAPER_TRADE: "true"
+  #     ASSET: "btc"
+  #     TIMEFRAME: "5m"
+  #     TRADES_FILE: "/app/state/delta-flip-btc-5m-trades.json"
+  #     HISTORY_FILE: "/app/state/delta-flip-btc-5m-history.json"
+  #     LOG_FILE: "/app/state/delta-flip-btc-5m-bot.log"
 
   # --- Copy Bot (uncomment to enable) ---
   # copy-bot:
