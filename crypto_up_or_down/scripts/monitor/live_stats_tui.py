@@ -84,28 +84,13 @@ def _bots_from_containers() -> list[dict]:
 
 
 def discover_bots(state_dir: Path) -> list[dict]:
-    """Return sorted bot list from state files + running containers.
+    """Return sorted bot list from running containers only.
 
-    State files are scanned on every call (fast glob).
+    Containers are the source of truth for which bots are active.
+    State files are used for data but don't create entries on their own.
     Container check is cached for 30 s so it doesn't block the TUI.
     """
-    seen: dict[str, str] = {}  # filename -> label
-
-    # Existing history files in state dir
-    for path in state_dir.glob("*-history.json"):
-        seen[path.name] = _label_from_filename(path.name)
-    special = "trade_history_full.json"
-    if (state_dir / special).exists():
-        seen[special] = _label_from_filename(special)
-
-    # Running containers — catches new bots before their first trade
-    for bot in _bots_from_containers():
-        seen.setdefault(bot["file"], bot["label"])
-
-    return sorted(
-        [{"label": label, "file": fname} for fname, label in seen.items()],
-        key=lambda b: b["label"],
-    )
+    return sorted(_bots_from_containers(), key=lambda b: b["label"])
 REFRESH_SECONDS = 5
 
 # ── Data model ────────────────────────────────────────────────────────────────
