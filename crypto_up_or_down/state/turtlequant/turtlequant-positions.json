@@ -15,7 +15,7 @@
       "model_prob_at_entry": 0.768597246344306,
       "edge_at_entry": 0.05359724634430607,
       "opened_at": "2026-03-09T19:33:33.147171+00:00",
-      "fill_confirmed": false
+      "fill_confirmed": true
     },
     {
       "market_id": "1473076",
@@ -30,7 +30,7 @@
       "model_prob_at_entry": 0.5521127874417386,
       "edge_at_entry": 0.10711278744173863,
       "opened_at": "2026-03-09T19:33:33.703934+00:00",
-      "fill_confirmed": false
+      "fill_confirmed": true
     }
   ]
 }
