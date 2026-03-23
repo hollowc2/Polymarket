@@ -106,21 +106,23 @@ TRADES_SQL = """\
 WITH ordered AS (
   SELECT
     ROW_NUMBER() OVER (ORDER BY ts DESC)                               AS rn,
+    strategy,
     TO_CHAR(ts AT TIME ZONE 'UTC', 'MM-DD HH24:MI')                   AS dt,
     CASE WHEN won THEN 'W' ELSE 'L' END                               AS wl,
     entry_price,
     pnl,
-    ROUND(SUM(pnl) OVER (ORDER BY ts
+    ROUND(SUM(pnl) OVER (PARTITION BY strategy ORDER BY ts
                          ROWS UNBOUNDED PRECEDING)::numeric, 2)        AS cum_pnl,
     amount,
     direction
   FROM polymarket_trades
   WHERE won IS NOT NULL
-    AND strategy = '$strategy'
+    AND strategy IN ($strategy)
 )
 SELECT
   rn            AS "#",
   dt            AS "Date/Time",
+  strategy      AS "Strategy",
   wl            AS "W/L",
   ROUND(entry_price::numeric, 3)  AS "Fill",
   ROUND(pnl::numeric, 2)          AS "Net P&L",
@@ -313,6 +315,9 @@ def trades_panel(ds_uid: str, panel_id: int, y: int) -> dict:
                 {"matcher": {"id": "byName", "options": "Date/Time"}, "properties": [
                     {"id": "custom.width", "value": 110},
                 ]},
+                {"matcher": {"id": "byName", "options": "Strategy"}, "properties": [
+                    {"id": "custom.width", "value": 180},
+                ]},
                 {
                     "matcher": {"id": "byName", "options": "W/L"},
                     "properties": [
@@ -378,12 +383,13 @@ def trades_panel(ds_uid: str, panel_id: int, y: int) -> dict:
 def strategy_variable(ds_uid: str) -> dict:
     return {
         "current": {},
-        "datasource": {"type": "postgres", "uid": ds_uid},
+        "datasource": {"type": "grafana-postgresql-datasource", "uid": ds_uid},
         "definition": "SELECT DISTINCT strategy FROM polymarket_trades WHERE won IS NOT NULL ORDER BY 1",
         "hide": 0,
-        "includeAll": False,
+        "includeAll": True,
+        "allValue": None,
         "label": "Strategy",
-        "multi": False,
+        "multi": True,
         "name": "strategy",
         "options": [],
         "query": "SELECT DISTINCT strategy FROM polymarket_trades WHERE won IS NOT NULL ORDER BY 1",
@@ -466,11 +472,9 @@ def bottom_y(panels: list[dict]) -> int:
 def patch_dashboard(dashboard: dict, ds_uid: str) -> dict:
     panels = dashboard.get("panels", [])
 
-    # Skip if already patched
-    existing_titles = {p.get("title", "") for p in panels}
-    if "Bot Leaderboard" in existing_titles:
-        print("Bot Leaderboard panel already present — skipping.")
-        return dashboard
+    # Remove existing leaderboard/trades panels so we can replace them
+    panels = [p for p in panels if p.get("title", "") not in ("Bot Leaderboard",) and
+              not str(p.get("title", "")).endswith("— Trades")]
 
     # Add $strategy variable if not already present
     templating = dashboard.setdefault("templating", {})
