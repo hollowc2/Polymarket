@@ -1,0 +1,426 @@
+{
+  "annotations": { "list": [] },
+  "description": "Polymarket bot leaderboard + per-bot trade drill-down",
+  "editable": true,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "id": 1,
+      "title": "Polymarket Bot Leaderboard",
+      "type": "table",
+      "gridPos": { "h": 14, "w": 24, "x": 0, "y": 0 },
+      "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "infinity" },
+      "options": {
+        "cellHeight": "sm",
+        "footer": { "show": false },
+        "showHeader": true,
+        "sortBy": [{ "displayName": "PnL $", "desc": true }]
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "custom": {
+            "align": "auto",
+            "cellOptions": { "type": "auto" },
+            "filterable": false,
+            "inspect": false
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "text", "value": null }]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Bot" },
+            "properties": [
+              { "id": "custom.width", "value": 200 },
+              { "id": "custom.cellOptions", "value": { "type": "color-text" } },
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "View trades",
+                    "url": "/d/polymarket-leaderboard?var-bot=${__data.fields.Bot}&${__url_time_range}",
+                    "targetBlank": false
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "n" },
+            "properties": [
+              { "id": "custom.width", "value": 60 },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    { "color": "text", "value": null },
+                    { "color": "yellow", "value": 1 },
+                    { "color": "text", "value": 30 }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Win%" },
+            "properties": [
+              { "id": "unit", "value": "percentunit" },
+              { "id": "decimals", "value": 1 },
+              { "id": "custom.width", "value": 75 }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "± CI" },
+            "properties": [
+              { "id": "unit", "value": "percentunit" },
+              { "id": "decimals", "value": 1 },
+              { "id": "custom.width", "value": 75 },
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "text" } }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "BE%" },
+            "properties": [
+              { "id": "unit", "value": "percentunit" },
+              { "id": "decimals", "value": 1 },
+              { "id": "custom.width", "value": 75 }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Edge" },
+            "properties": [
+              { "id": "unit", "value": "percentunit" },
+              { "id": "decimals", "value": 1 },
+              { "id": "custom.width", "value": 80 },
+              { "id": "custom.cellOptions", "value": { "type": "color-text" } },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    { "color": "red", "value": null },
+                    { "color": "green", "value": 0.001 }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "PnL $" },
+            "properties": [
+              { "id": "unit", "value": "currencyUSD" },
+              { "id": "decimals", "value": 2 },
+              { "id": "custom.width", "value": 100 },
+              { "id": "custom.cellOptions", "value": { "type": "color-text" } },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    { "color": "red", "value": null },
+                    { "color": "green", "value": 0.01 }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Avg $/trade" },
+            "properties": [
+              { "id": "unit", "value": "currencyUSD" },
+              { "id": "decimals", "value": 2 },
+              { "id": "custom.width", "value": 110 },
+              { "id": "custom.cellOptions", "value": { "type": "color-text" } },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    { "color": "red", "value": null },
+                    { "color": "green", "value": 0.01 }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Sharpe" },
+            "properties": [
+              { "id": "decimals", "value": 2 },
+              { "id": "custom.width", "value": 80 },
+              { "id": "custom.cellOptions", "value": { "type": "color-text" } },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    { "color": "red", "value": null },
+                    { "color": "yellow", "value": 0 },
+                    { "color": "green", "value": 1 }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "MaxDD $" },
+            "properties": [
+              { "id": "unit", "value": "currencyUSD" },
+              { "id": "decimals", "value": 2 },
+              { "id": "custom.width", "value": 100 },
+              { "id": "custom.cellOptions", "value": { "type": "color-text" } },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    { "color": "red", "value": null },
+                    { "color": "text", "value": 0 }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "MaxCL" },
+            "properties": [
+              { "id": "custom.width", "value": 70 }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "url": "http://metrics-server:9099/api/leaderboard",
+          "format": "table",
+          "columns": [
+            { "selector": "bot",               "text": "Bot",         "type": "string" },
+            { "selector": "n",                 "text": "n",           "type": "number" },
+            { "selector": "win_rate",          "text": "Win%",        "type": "number" },
+            { "selector": "ci_margin",         "text": "± CI",        "type": "number" },
+            { "selector": "be_wr",             "text": "BE%",         "type": "number" },
+            { "selector": "edge",              "text": "Edge",        "type": "number" },
+            { "selector": "total_pnl",         "text": "PnL $",       "type": "number" },
+            { "selector": "avg_pnl",           "text": "Avg $/trade", "type": "number" },
+            { "selector": "sharpe",            "text": "Sharpe",      "type": "number" },
+            { "selector": "max_drawdown",      "text": "MaxDD $",     "type": "number" },
+            { "selector": "max_consec_losses", "text": "MaxCL",       "type": "number" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "${bot} — Trades",
+      "type": "table",
+      "gridPos": { "h": 20, "w": 24, "x": 0, "y": 14 },
+      "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "infinity" },
+      "options": {
+        "cellHeight": "sm",
+        "footer": { "show": false },
+        "showHeader": true
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "custom": {
+            "align": "auto",
+            "cellOptions": { "type": "auto" },
+            "filterable": false,
+            "inspect": false
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "text", "value": null }]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "#" },
+            "properties": [
+              { "id": "custom.width", "value": 50 },
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "text" } }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Date/Time" },
+            "properties": [
+              { "id": "custom.width", "value": 110 }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "W/L" },
+            "properties": [
+              { "id": "custom.width", "value": 60 },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "W": { "text": "W", "color": "green",  "index": 0 },
+                      "L": { "text": "L", "color": "red",    "index": 1 }
+                    }
+                  }
+                ]
+              },
+              { "id": "custom.cellOptions", "value": { "type": "color-background" } }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Fill" },
+            "properties": [
+              { "id": "decimals", "value": 3 },
+              { "id": "custom.width", "value": 70 }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Net P&L" },
+            "properties": [
+              { "id": "unit", "value": "currencyUSD" },
+              { "id": "decimals", "value": 2 },
+              { "id": "custom.width", "value": 95 },
+              { "id": "custom.cellOptions", "value": { "type": "color-text" } },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    { "color": "red",   "value": null },
+                    { "color": "green", "value": 0.01 }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Cum P&L" },
+            "properties": [
+              { "id": "unit", "value": "currencyUSD" },
+              { "id": "decimals", "value": 2 },
+              { "id": "custom.width", "value": 95 },
+              { "id": "custom.cellOptions", "value": { "type": "color-text" } },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    { "color": "red",   "value": null },
+                    { "color": "green", "value": 0.01 }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Size $" },
+            "properties": [
+              { "id": "unit", "value": "currencyUSD" },
+              { "id": "decimals", "value": 2 },
+              { "id": "custom.width", "value": 80 }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Dir" },
+            "properties": [
+              { "id": "custom.width", "value": 65 },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "UP":   { "text": "UP",   "color": "green", "index": 0 },
+                      "DOWN": { "text": "DOWN",  "color": "red",   "index": 1 }
+                    }
+                  }
+                ]
+              },
+              { "id": "custom.cellOptions", "value": { "type": "color-text" } }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Market Slug" },
+            "properties": [
+              { "id": "custom.minWidth", "value": 200 }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Gate" },
+            "properties": [
+              { "id": "custom.width", "value": 120 }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "url": "http://metrics-server:9099/api/trades?bot=${bot}",
+          "format": "table",
+          "columns": [
+            { "selector": "row",         "text": "#",           "type": "number" },
+            { "selector": "datetime",    "text": "Date/Time",   "type": "string" },
+            { "selector": "wl",          "text": "W/L",         "type": "string" },
+            { "selector": "fill",        "text": "Fill",        "type": "number" },
+            { "selector": "net_pnl",     "text": "Net P&L",     "type": "number" },
+            { "selector": "cum_pnl",     "text": "Cum P&L",     "type": "number" },
+            { "selector": "size",        "text": "Size $",      "type": "number" },
+            { "selector": "direction",   "text": "Dir",         "type": "string" },
+            { "selector": "market_slug", "text": "Market Slug", "type": "string" },
+            { "selector": "gate",        "text": "Gate",        "type": "string" }
+          ]
+        }
+      ]
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["polymarket", "trading"],
+  "templating": {
+    "list": [
+      {
+        "current": {},
+        "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "infinity" },
+        "definition": "",
+        "hide": 0,
+        "includeAll": false,
+        "label": "Bot",
+        "multi": false,
+        "name": "bot",
+        "options": [],
+        "query": {
+          "refId": "StandardVariableQuery",
+          "type": "json",
+          "source": "url",
+          "url": "http://metrics-server:9099/api/bots",
+          "format": "table",
+          "columns": [
+            { "selector": "", "text": "bot", "type": "string" }
+          ]
+        },
+        "refresh": 2,
+        "regex": "",
+        "sort": 0,
+        "type": "query"
+      }
+    ]
+  },
+  "time": { "from": "now-7d", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Polymarket Bot Leaderboard",
+  "uid": "polymarket-leaderboard",
+  "version": 1
+}
