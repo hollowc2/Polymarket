@@ -4,7 +4,9 @@ version = "0.2.0"
 description = "Composable Polymarket Trading Toolkit"
 readme = "README.md"
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "psycopg2-binary>=2.9.11",
+]
 
 [dependency-groups]
 dev = [
