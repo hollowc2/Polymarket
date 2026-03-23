@@ -444,8 +444,9 @@ class GrafanaClient:
 
 def find_postgres_datasource(client: GrafanaClient) -> tuple[str, str]:
     """Return (uid, name) of the first TimescaleDB/PostgreSQL datasource."""
+    pg_types = {"postgres", "grafana-postgresql-datasource"}
     for ds in client.get_datasources():
-        if ds.get("type") == "postgres":
+        if ds.get("type") in pg_types:
             return ds["uid"], ds["name"]
     raise RuntimeError("No PostgreSQL/TimescaleDB datasource found in Grafana.")
 
