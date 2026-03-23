@@ -469,26 +469,27 @@ services:
     ports:
       - "9099:9099"
 
-  # Grafana — install Infinity plugin, provision datasource + dashboard.
-  # Access at http://localhost:3000  (admin / admin on first launch)
-  grafana:
-    image: grafana/grafana:11.5.2
-    container_name: polymarket-grafana
-    restart: unless-stopped
-    ports:
-      - "3000:3000"
-    environment:
-      GF_INSTALL_PLUGINS: yesoreyeram-infinity-datasource
-      GF_SECURITY_ADMIN_PASSWORD: admin
-      GF_USERS_ALLOW_SIGN_UP: "false"
-    volumes:
-      - grafana-data:/var/lib/grafana
-      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
+  # Grafana is already running on this host (port 3000).
+  # Add the Infinity datasource + import monitoring/grafana/provisioning/dashboards/polymarket.json
+  # manually, or mount the provisioning dir into your existing Grafana container.
+  # grafana:
+  #   image: grafana/grafana:11.5.2
+  #   container_name: polymarket-grafana
+  #   restart: unless-stopped
+  #   ports:
+  #     - "3000:3000"
+  #   environment:
+  #     GF_INSTALL_PLUGINS: yesoreyeram-infinity-datasource
+  #     GF_SECURITY_ADMIN_PASSWORD: admin
+  #     GF_USERS_ALLOW_SIGN_UP: "false"
+  #   volumes:
+  #     - grafana-data:/var/lib/grafana
+  #     - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+  #   logging:
+  #     driver: "json-file"
+  #     options:
+  #       max-size: "10m"
+  #       max-file: "3"
 
 networks:
   monitoring_net:
