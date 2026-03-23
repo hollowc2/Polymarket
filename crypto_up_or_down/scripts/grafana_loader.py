@@ -15,6 +15,7 @@ import glob
 import json
 import os
 import re
+import subprocess
 import sys
 
 import psycopg2
@@ -111,6 +112,61 @@ def load_history_file(path: str) -> list[dict]:
     return rows
 
 
+def ensure_strategies_table(conn):
+    with conn.cursor() as cur:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS strategies (
+                name      TEXT PRIMARY KEY,
+                is_active BOOLEAN NOT NULL DEFAULT true
+            )
+        """)
+    conn.commit()
+
+
+def sync_strategies(conn, state_dir: str):
+    # Derive active strategies from running Docker containers.
+    # Convention: polymarket-{strategy-name}-bot → strategy name.
+    # Intersect with known history files to drop containers whose strategy
+    # names don't appear in the DB (e.g. renamed bots like polymarket-streak-bot).
+    try:
+        result = subprocess.run(
+            ["docker", "ps", "--format", "{{.Names}}"],
+            capture_output=True, text=True, timeout=10,
+        )
+        running = set(result.stdout.strip().splitlines())
+    except Exception as e:
+        print(f"  WARN: docker ps failed, skipping strategy sync: {e}", file=sys.stderr)
+        return
+
+    active_from_docker = set()
+    for name in running:
+        if name.startswith("polymarket-") and name.endswith("-bot"):
+            active_from_docker.add(name[len("polymarket-"):-len("-bot")])
+
+    history_files = glob.glob(os.path.join(state_dir, "*-history.json"))
+    all_strategies = {
+        os.path.basename(p).replace("-history.json", "")
+        for p in history_files
+    }
+
+    # Only strategies that both have history files and match a running container
+    active_strategies = active_from_docker & all_strategies
+
+    rows = [
+        {"name": name, "is_active": name in active_strategies}
+        for name in all_strategies
+    ]
+    if not rows:
+        return
+    with conn.cursor() as cur:
+        psycopg2.extras.execute_batch(cur, """
+            INSERT INTO strategies (name, is_active)
+            VALUES (%(name)s, %(is_active)s)
+            ON CONFLICT (name) DO UPDATE SET is_active = EXCLUDED.is_active
+        """, rows)
+    conn.commit()
+
+
 def upsert_rows(conn, rows: list[dict]) -> int:
     if not rows:
         return 0
@@ -159,6 +215,8 @@ def main():
         host=DB_HOST, port=DB_PORT, dbname=DB_NAME, user=DB_USER, password=DB_PASS
     )
     try:
+        ensure_strategies_table(conn)
+        sync_strategies(conn, args.state_dir)
         inserted = upsert_rows(conn, all_rows)
         print(f"Upserted {inserted} rows (ON CONFLICT DO NOTHING for duplicates)")
     finally:
