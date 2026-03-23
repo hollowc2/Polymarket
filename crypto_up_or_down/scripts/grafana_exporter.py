@@ -2,9 +2,15 @@
 """Prometheus exporter for polymarket crypto_up_or_down live state.
 
 Reads all *-trades.json files from STATE_DIR and exposes per-strategy gauges:
-  polymarket_bankroll         — current bankroll USD
-  polymarket_daily_pnl_usd    — today's net P&L USD
-  polymarket_daily_bets       — number of bets placed today
+  polymarket_bankroll              — current bankroll USD
+  polymarket_daily_pnl_usd         — today's net P&L USD
+  polymarket_daily_bets            — number of bets placed today
+  polymarket_total_trades          — all-time trade count
+  polymarket_total_pnl_usd         — all-time net P&L USD
+  polymarket_win_rate              — fraction of settled trades won (0–1)
+  polymarket_avg_stake_usd         — mean stake per trade USD
+  polymarket_last_trade_age_sec    — seconds since last trade execution
+  polymarket_consecutive_losses    — consecutive losses at last trade
 
 Labels: strategy, paper ("true"/"false")
 
@@ -50,6 +56,36 @@ class PolymarketCollector:
             "Number of bets placed today",
             labels=["strategy", "paper"],
         )
+        total_trades_g = GaugeMetricFamily(
+            "polymarket_total_trades",
+            "All-time trade count",
+            labels=["strategy", "paper"],
+        )
+        total_pnl_g = GaugeMetricFamily(
+            "polymarket_total_pnl_usd",
+            "All-time net P&L in USD",
+            labels=["strategy", "paper"],
+        )
+        win_rate_g = GaugeMetricFamily(
+            "polymarket_win_rate",
+            "Fraction of settled trades won (0-1)",
+            labels=["strategy", "paper"],
+        )
+        avg_stake_g = GaugeMetricFamily(
+            "polymarket_avg_stake_usd",
+            "Mean stake per trade in USD",
+            labels=["strategy", "paper"],
+        )
+        last_trade_age_g = GaugeMetricFamily(
+            "polymarket_last_trade_age_sec",
+            "Seconds since last trade execution",
+            labels=["strategy", "paper"],
+        )
+        consecutive_losses_g = GaugeMetricFamily(
+            "polymarket_consecutive_losses",
+            "Consecutive losses at time of last trade",
+            labels=["strategy", "paper"],
+        )
 
         pattern = os.path.join(self.state_dir, "*-trades.json")
         for path in sorted(glob.glob(pattern)):
@@ -84,9 +120,34 @@ class PolymarketCollector:
             if daily_bets is not None:
                 daily_bets_g.add_metric(labels, float(daily_bets))
 
+            total_trades_g.add_metric(labels, len(trades))
+
+            settled = [t for t in trades if t.get("settlement", {}).get("status") == "settled"]
+            if settled:
+                wins = sum(1 for t in settled if t.get("settlement", {}).get("won"))
+                total_pnl = sum(t.get("settlement", {}).get("net_profit", 0.0) for t in settled)
+                avg_stake = sum(t.get("position", {}).get("amount", 0.0) for t in settled) / len(settled)
+                total_pnl_g.add_metric(labels, float(total_pnl))
+                win_rate_g.add_metric(labels, wins / len(settled))
+                avg_stake_g.add_metric(labels, float(avg_stake))
+
+            if trades:
+                last_exec_ts_ms = trades[-1].get("execution", {}).get("timestamp")
+                if last_exec_ts_ms is not None:
+                    last_trade_age_g.add_metric(labels, time.time() - last_exec_ts_ms / 1000.0)
+                consec_losses = trades[-1].get("session", {}).get("consecutive_losses")
+                if consec_losses is not None:
+                    consecutive_losses_g.add_metric(labels, float(consec_losses))
+
         yield bankroll_g
         yield daily_pnl_g
         yield daily_bets_g
+        yield total_trades_g
+        yield total_pnl_g
+        yield win_rate_g
+        yield avg_stake_g
+        yield last_trade_age_g
+        yield consecutive_losses_g
 
 
 def main():
