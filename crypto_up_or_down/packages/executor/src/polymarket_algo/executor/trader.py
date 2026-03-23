@@ -1132,6 +1132,11 @@ class PaperTrader:
         # Get token ID for the direction we're betting on
         token_id = market.up_token_id if direction == "up" else market.down_token_id
 
+        # Reject immediately if no token ID — same as LiveTrader
+        if not token_id and not kwargs.get("precomputed_execution"):
+            print(f"[PAPER] ❌ Order cancelled: no token ID for {direction} side (market not yet available)")
+            return None
+
         # Default simulation values
         fee_rate_bps = 0
         fee_pct = 0.0
@@ -1140,7 +1145,7 @@ class PaperTrader:
         fill_pct = 100.0
         delay_impact_pct = 0.0
         delay_breakdown = None
-        execution_price = entry_price if entry_price > 0 else 0.5
+        execution_price = 0.0  # Must be resolved by orderbook walk or CLOB fallback below
         best_bid = 0.0
         best_ask = 0.0
         market_volume = market.volume if hasattr(market, "volume") else 0.0
@@ -1154,11 +1159,10 @@ class PaperTrader:
 
         # Use fee rate from market data (already fetched from Gamma API)
         fee_rate_bps = market.taker_fee_bps if hasattr(market, "taker_fee_bps") else 200
-        fee_pct = self._client.calculate_fee(execution_price, fee_rate_bps)
 
         # Query orderbook for realistic simulation (or use precomputed data)
         if precomputed_execution:
-            execution_price = precomputed_execution.get("execution_price", execution_price)
+            execution_price = precomputed_execution.get("execution_price", 0.0)
             spread = precomputed_execution.get("spread", spread)
             slippage_pct = precomputed_execution.get("slippage_pct", slippage_pct)
             fill_pct = precomputed_execution.get("fill_pct", fill_pct)
@@ -1166,8 +1170,6 @@ class PaperTrader:
             delay_breakdown = precomputed_execution.get("delay_breakdown")
             best_bid = precomputed_execution.get("best_bid", best_bid)
             best_ask = precomputed_execution.get("best_ask", best_ask)
-            if execution_price > 0:
-                fee_pct = self._client.calculate_fee(execution_price, fee_rate_bps)
         elif token_id:
             try:
                 # Use market cache if available (faster, WebSocket-backed)
@@ -1207,10 +1209,40 @@ class PaperTrader:
 
                 if exec_price > 0:
                     execution_price = exec_price
-                    # Recalculate fee at actual execution price
-                    fee_pct = self._client.calculate_fee(execution_price, fee_rate_bps)
+                else:
+                    # Book walk returned 0 — either API failure or no depth to fill.
+                    # Fall back to CLOB best ask (the cheapest live price you could hit).
+                    print(f"[PAPER] ⚠️  Orderbook walk returned no price — trying CLOB best ask fallback")
+                    ask_fallback = self._client.get_price(token_id, "BUY")
+                    if ask_fallback and ask_fallback > 0:
+                        execution_price = ask_fallback
+                        print(f"[PAPER] Using CLOB best ask: {execution_price:.4f}")
+                    else:
+                        # No price data at all — a live FOK order would cancel here
+                        print(f"[PAPER] ❌ Order cancelled: no price data available (FOK would cancel)")
+                        return None
             except Exception as e:
-                print(f"[PAPER] Warning: Could not fetch market data: {e}")
+                print(f"[PAPER] Warning: Could not fetch orderbook: {e}")
+                # Try CLOB best ask as fallback before giving up
+                ask_fallback = self._client.get_price(token_id, "BUY") if token_id else None
+                if ask_fallback and ask_fallback > 0:
+                    execution_price = ask_fallback
+                    print(f"[PAPER] Using CLOB best ask as fallback: {execution_price:.4f}")
+                else:
+                    print(f"[PAPER] ❌ Order cancelled: could not determine execution price (FOK would cancel)")
+                    return None
+
+        # Simulate FOK cancel when book has zero fillable depth
+        if fill_pct == 0.0:
+            print(f"[PAPER] ❌ Order cancelled: zero fillable depth (FOK would cancel)")
+            return None
+
+        # Execution price must be resolved at this point
+        if execution_price <= 0:
+            print(f"[PAPER] ❌ Order cancelled: no valid execution price resolved")
+            return None
+
+        fee_pct = self._client.calculate_fee(execution_price, fee_rate_bps)
 
         # Calculate price movement from signal to execution
         price_movement_pct = 0.0
@@ -1251,7 +1283,7 @@ class PaperTrader:
             market_slug=market.slug,
             direction=direction,
             amount=filled_amount,  # Use filled amount, not requested amount
-            entry_price=entry_price if entry_price > 0 else 0.5,
+            entry_price=entry_price if entry_price > 0 else execution_price,
             streak_length=streak_length,
             confidence=confidence,
             paper=True,
@@ -1331,7 +1363,7 @@ class PaperTrader:
 
         entry_price = market.up_price if direction == "up" else market.down_price
         if entry_price <= 0:
-            entry_price = 0.5
+            entry_price = limit_price  # Use the limit price itself as reference if market price unavailable
         executed_at = int(time.time() * 1000)
 
         fee_rate_bps = market.taker_fee_bps if hasattr(market, "taker_fee_bps") else 200

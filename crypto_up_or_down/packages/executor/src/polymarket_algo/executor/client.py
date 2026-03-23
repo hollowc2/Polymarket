@@ -378,12 +378,14 @@ class PolymarketClient:
         """Get midpoint price for a token.
 
         Faster than get_orderbook for just getting the mid price.
+        Returns None if the price cannot be determined.
         """
         try:
             resp = self.session.get(f"{self.clob}/midpoint", params={"token_id": token_id}, timeout=self.timeout)
             resp.raise_for_status()
             data = resp.json()
-            return float(data.get("mid", 0.5))
+            mid = data.get("mid")
+            return float(mid) if mid is not None else None
         except requests.exceptions.Timeout:
             return None
         except Exception as e:
@@ -396,6 +398,8 @@ class PolymarketClient:
         Args:
             token_id: Token to get price for
             side: "BUY" returns best ask, "SELL" returns best bid
+
+        Returns None if the price cannot be determined.
         """
         try:
             resp = self.session.get(
@@ -405,7 +409,8 @@ class PolymarketClient:
             )
             resp.raise_for_status()
             data = resp.json()
-            return float(data.get("price", 0.5))
+            price = data.get("price")
+            return float(price) if price is not None else None
         except Exception:
             return None
 
@@ -550,14 +555,14 @@ class PolymarketClient:
         """
         book = self.get_orderbook(token_id)
         if not book:
-            return (0.5, 0.0, 0.0, 100.0, 0.0, None)
+            return (0.0, 0.0, 0.0, 0.0, 0.0, None)
 
         # Get best bid/ask for spread calculation
         bids = book.get("bids", [])
         asks = book.get("asks", [])
 
         if not bids or not asks:
-            return (0.5, 0.0, 0.0, 100.0, 0.0, None)
+            return (0.0, 0.0, 0.0, 0.0, 0.0, None)
 
         # Sort: asks ascending (lowest first), bids descending (highest first)
         asks_sorted = sorted(asks, key=lambda x: float(x["price"]))
@@ -608,8 +613,7 @@ class PolymarketClient:
         fill_pct = (filled_amount / amount_usd * 100) if amount_usd > 0 else 100.0
 
         if total_shares == 0:
-            midpoint = (best_ask + best_bid) / 2
-            return (midpoint, spread, 0.0, 0.0, 0.0, None)
+            return (0.0, spread, 0.0, 0.0, 0.0, None)
 
         execution_price = total_cost / total_shares
 
