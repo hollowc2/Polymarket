@@ -90,7 +90,13 @@ def discover_bots(state_dir: Path) -> list[dict]:
     State files are used for data but don't create entries on their own.
     Container check is cached for 30 s so it doesn't block the TUI.
     """
-    return sorted(_bots_from_containers(), key=lambda b: b["label"])
+    seen: set[str] = set()
+    unique: list[dict] = []
+    for b in _bots_from_containers():
+        if b["label"] not in seen:
+            seen.add(b["label"])
+            unique.append(b)
+    return sorted(unique, key=lambda b: b["label"])
 REFRESH_SECONDS = 5
 
 # ── Data model ────────────────────────────────────────────────────────────────
