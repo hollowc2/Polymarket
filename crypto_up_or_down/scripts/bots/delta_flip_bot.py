@@ -26,6 +26,7 @@ from pathlib import Path
 
 import pandas as pd
 from polymarket_algo.core.config import LOCAL_TZ, TIMEZONE_NAME, Config
+from polymarket_algo.data.binance import fetch_klines
 from polymarket_algo.executor.client import PolymarketClient
 from polymarket_algo.executor.trader import PaperTrader, TradingState
 from polymarket_algo.strategies.delta_flip import DeltaFlipStrategy
@@ -91,8 +92,8 @@ def main():
     parser.add_argument(
         "--gate-timeframe",
         choices=["1h", "4h"],
-        default="4h",
-        help="HTF gate timeframe (default: 4h)",
+        default="1h",
+        help="HTF gate timeframe (default: 1h)",
     )
     parser.add_argument(
         "--size",
@@ -109,6 +110,25 @@ def main():
         help="Max bet cap in USD (default: 5× size)",
     )
     parser.add_argument("--bankroll", type=float, metavar="USD", help="Override starting bankroll")
+    parser.add_argument(
+        "--block-hours",
+        type=str,
+        default="0,1",
+        metavar="H,H,...",
+        help="Comma-separated UTC hours to skip (default: 0,1)",
+    )
+    parser.add_argument(
+        "--vol-confirm",
+        action="store_true",
+        help="Require current bar volume > rolling median before firing signal",
+    )
+    parser.add_argument(
+        "--vol-confirm-window",
+        type=int,
+        default=20,
+        metavar="N",
+        help="Rolling window (bars) for volume median check (default: 20)",
+    )
 
     args = parser.parse_args()
 
@@ -127,6 +147,18 @@ def main():
     base_size = args.size
     max_size = args.max_size if args.max_size is not None else base_size * 5
     gate_timeframe = args.gate_timeframe
+    block_hours: set[int] = {int(h.strip()) for h in args.block_hours.split(",") if h.strip()}
+    vol_confirm = args.vol_confirm
+    vol_confirm_window = args.vol_confirm_window
+
+    # Binance symbol for volume confirmation
+    ASSET_TO_SYMBOL: dict[str, str] = {
+        "btc": "BTCUSDT",
+        "eth": "ETHUSDT",
+        "sol": "SOLUSDT",
+        "xrp": "XRPUSDT",
+    }
+    binance_symbol = ASSET_TO_SYMBOL.get(asset, "BTCUSDT")
 
     # State dir: same directory as the trades file
     state_dir = str(Path(Config.TRADES_FILE).parent / "state")
@@ -161,6 +193,8 @@ def main():
     log(f"HTF gate      : {gate_timeframe}")
     log(f"Size          : ${base_size:.2f}  max=${max_size:.2f}")
     log(f"State dir     : {state_dir}")
+    log(f"Block hrs     : {sorted(block_hours) if block_hours else 'none'}")
+    log(f"Vol confirm   : {'on (window=' + str(vol_confirm_window) + ')' if vol_confirm else 'off'}")
     log(f"Bankroll      : ${state.bankroll:.2f}")
     log(f"Limits        : max {Config.MAX_DAILY_BETS} bets/day, max ${Config.MAX_DAILY_LOSS} loss/day")
     log(f"Timezone      : {TIMEZONE_NAME}")
@@ -222,6 +256,14 @@ def main():
                 time.sleep(1)
                 continue
 
+            # === SESSION BLOCK ===
+            target_hour = (target_ts % 86400) // 3600
+            if block_hours and target_hour in block_hours:
+                log(f"Session block: hour {target_hour} UTC — skip")
+                bet_timestamps.add(target_ts)
+                time.sleep(5)
+                continue
+
             # === EVALUATE STRATEGY ===
             log(f"Fetching HL cumulative delta for {coin} [{timeframe}]...")
             result = strategy.evaluate(_dummy_candles(), **eval_params)
@@ -238,6 +280,26 @@ def main():
 
             direction = "up" if raw_signal == 1 else "down"
             log(f"Delta flip: {direction.upper()}  size=${bet_size:.2f}")
+
+            # === VOLUME CONFIRMATION ===
+            if vol_confirm:
+                now_ms = int(time.time() * 1000)
+                start_ms = now_ms - (vol_confirm_window + 2) * 300_000
+                try:
+                    vol_candles = fetch_klines(binance_symbol, "5m", start_ms, now_ms)
+                    if not vol_candles.empty and len(vol_candles) >= vol_confirm_window:
+                        rolling_median = vol_candles["volume"].rolling(vol_confirm_window).median().iloc[-1]
+                        cur_volume = float(vol_candles["volume"].iloc[-1])
+                        if cur_volume < rolling_median:
+                            log(f"Vol confirm: volume {cur_volume:.0f} < median {rolling_median:.0f} — skip")
+                            bet_timestamps.add(target_ts)
+                            time.sleep(5)
+                            continue
+                        log(f"Vol confirm: volume {cur_volume:.0f} >= median {rolling_median:.0f} — pass")
+                    else:
+                        log("Vol confirm: not enough candles — skipping check")
+                except Exception as e:
+                    log(f"Vol confirm fetch error: {e} — skipping check")
 
             # === BANKROLL CHECK ===
             can_trade, reason = state.can_trade(bet_size=bet_size)

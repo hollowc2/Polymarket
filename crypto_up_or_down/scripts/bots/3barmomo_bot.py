@@ -73,6 +73,13 @@ def main():
     )
     parser.add_argument("--bankroll", type=float, metavar="USD", help="Override starting bankroll")
     parser.add_argument(
+        "--block-hours",
+        type=str,
+        default="16,17,20",
+        metavar="H,H,...",
+        help="Comma-separated UTC hours to skip (default: 16,17,20)",
+    )
+    parser.add_argument(
         "--hl-gate",
         action="store_true",
         help="Veto signals when HL 5m+15m both oppose the momentum direction",
@@ -99,6 +106,7 @@ def main():
     min_body_pct = args.min_body_pct
     hl_gate = args.hl_gate
     hl_coin = args.hl_coin.upper()
+    block_hours: set[int] = {int(h.strip()) for h in args.block_hours.split(",") if h.strip()}
 
     # Init components
     client = PolymarketClient()
@@ -122,6 +130,7 @@ def main():
         f"(bars={bars}, base_bet=${bet_amount:.2f}, size_cap={size_cap}x, "
         f"min_body_pct={min_body_pct}{gate_info})"
     )
+    log(f"Block hours (UTC): {sorted(block_hours) if block_hours else 'none'}")
     log(f"Bankroll: ${state.bankroll:.2f}")
     log(f"Limits: max {Config.MAX_DAILY_BETS} bets/day, max ${Config.MAX_DAILY_LOSS} loss/day")
     log(f"Timezone: {TIMEZONE_NAME}")
@@ -176,6 +185,14 @@ def main():
                         f"Pending: {len(pending)} trades"
                     )
                 time.sleep(1)
+                continue
+
+            # === SESSION BLOCK ===
+            target_hour = (target_ts % 86400) // 3600
+            if block_hours and target_hour in block_hours:
+                log(f"Session block: hour {target_hour} UTC — skip")
+                bet_timestamps.add(target_ts)
+                time.sleep(5)
                 continue
 
             # === FETCH BINANCE CANDLES ===
