@@ -113,6 +113,13 @@ def main():
         help="Signal mode: momentum (follow flow) or reversal (fade exhaustion)",
     )
     parser.add_argument("--bankroll", type=float, metavar="USD", help="Override starting bankroll")
+    parser.add_argument(
+        "--block-hours",
+        type=str,
+        default="",
+        metavar="H,H,...",
+        help="Comma-separated UTC hours to skip, e.g. '3,4,5,6,7,8' for reversal (default: off)",
+    )
 
     args = parser.parse_args()
 
@@ -131,6 +138,7 @@ def main():
     base_size = args.size
     max_size = args.max_size if args.max_size is not None else base_size * 2
     min_votes = args.min_votes
+    block_hours: set[int] = {int(h.strip()) for h in args.block_hours.split(",") if h.strip()}
 
     if args.strategy == "reversal":
         strategy = HLOrderFlowReversalStrategy()
@@ -161,6 +169,7 @@ def main():
     log(f"Asset    : {asset.upper()} / HL coin: {coin}")
     log(f"Timeframe: {timeframe}  (fires every {window_seconds // 60} min)")
     log(f"Params   : size=${base_size:.2f}, max_size=${max_size:.2f}, min_votes={min_votes}")
+    log(f"Block hrs: {sorted(block_hours) if block_hours else 'none'}")
     log(f"Max bet  : ${max_size:.2f} | Bankroll: ${state.bankroll:.2f}")
     log(f"Limits   : max {Config.MAX_DAILY_BETS} bets/day, max ${Config.MAX_DAILY_LOSS} loss/day")
     log(f"Timezone : {TIMEZONE_NAME}")
@@ -220,6 +229,14 @@ def main():
                         f"Pending: {len(pending)} trades"
                     )
                 time.sleep(1)
+                continue
+
+            # === SESSION BLOCK ===
+            target_hour = (target_ts % 86400) // 3600
+            if block_hours and target_hour in block_hours:
+                log(f"Session block: hour {target_hour} UTC — skip")
+                bet_timestamps.add(target_ts)
+                time.sleep(5)
                 continue
 
             # === EVALUATE STRATEGY ===

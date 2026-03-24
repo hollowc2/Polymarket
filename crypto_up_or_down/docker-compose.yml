@@ -18,15 +18,16 @@ services:
 
   # ------------------------------------------------------------------ #
   # Paper research bots — honest FOK simulation, no real money         #
-  # Active bots (2026-03-15):                                          #
-  #   reversal-trend-bot          — streak_reversal/eth/5m + TrendFilter(50) #
-  #   adx-eth-5m-bot              — streak_adx/eth/5m   + TrendFilter(50)   #
+  # Active bots (2026-03-24):                                          #
+  #   reversal-trend-bot          — streak_reversal/eth/5m + TrendFilter(50) + min-fill=0.54 #
+  #   adx-eth-5m-bot              — streak_adx/eth/5m + SessionFilter(good hours) + min-fill=0.53 #
   #   hl-orderflow-momo-5m-bot    — hl_orderflow_momentum/btc/5m            #
   #   hl-orderflow-momo-15m-bot   — hl_orderflow_momentum/btc/15m           #
-  #   hl-orderflow-reversal-5m-bot — hl_orderflow_reversal/btc/5m           #
-  #   3barmomo-hl-5m-bot          — 3bar_momo/btc/5m + HL gate             #
+  #   hl-orderflow-reversal-5m-bot — hl_orderflow_reversal/btc/5m + block 03-08h #
+  #   3barmomo-hl-5m-bot          — 3bar_momo/btc/5m + HL gate + block 16,17,20h #
   #   3barmomo-5m-scale-bot       — 3bar_momo/btc/5m + HL pressure sizing  #
   #   pinbar-hl-5m-bot            — pin_bar_reversal/btc/5m + HL gate      #
+  #   delta-flip-btc-5m-bot       — delta_flip/btc/5m + 1h gate + vol-confirm (re-enabled) #
   # ------------------------------------------------------------------ #
 
   # Config 0: streak_reversal/eth/5m — no gate, pure baseline
@@ -45,6 +46,7 @@ services:
   # Config 1: streak_reversal/eth/5m + TrendFilter(ema=50, veto_with_trend)
   # Walk-forward (2024-2026): test Sharpe 6.60 (close+spread), 6.07 (intrabar_conservative)
   # ema=50 > ema=100 (6.60 vs 6.23); trigger=4; half_spread=0.005 baked into scoring
+  # 2026-03-24: added min-fill=0.54 gate (fills <0.55 → 50.7% WR; ≥0.55 → 64.0% WR)
   reversal-trend-bot:
     <<: *bot-common
     container_name: polymarket-reversal-trend-bot
@@ -66,6 +68,8 @@ services:
       - "trend_filter"
       - "--ema-period"
       - "50"
+      - "--min-fill"
+      - "0.54"
     environment:
       PAPER_TRADE: "true"
       ASSET: "eth"
@@ -149,10 +153,12 @@ services:
   #     HISTORY_FILE: "/app/state/apex-hybrid-history.json"
   #     LOG_FILE: "/app/state/apex-hybrid-bot.log"
 
-  # Config 2: streak_adx/eth/5m + TrendFilter(ema=50, veto_with_trend)
+  # Config 2: streak_adx/eth/5m + SessionFilter (productive hours only) + min-fill gate
   # Sweep (2026-03-10): test Sharpe 6.48, win 55.7%, 16.4k test trades
-  # Best params: trigger=4, adx_period=20, adx_threshold=30, ema=50
-  # Selected by TRAIN Sharpe (8.06) — no test leakage
+  # Best params: trigger=4, adx_period=20, adx_threshold=30
+  # 2026-03-24: switched gate trend_filter→session (live Sharpe 0.09 → ~0.6 projected)
+  #   Allowed hours: 02-03, 07, 09-10, 17, 19 UTC (all ≥60% WR in live data)
+  #   Added min-fill=0.53 (0.55-0.60 fills → 60% WR vs 0.50-0.55 → 52.2% WR)
   adx-eth-5m-bot:
     <<: *bot-common
     container_name: polymarket-adx-eth-5m-bot
@@ -171,13 +177,15 @@ services:
       - "--strategy"
       - "streak_adx"
       - "--gate"
-      - "trend_filter"
-      - "--ema-period"
-      - "50"
+      - "session"
+      - "--session-hours"
+      - "2-3,7,9-10,17,19"
       - "--adx-period"
       - "20"
       - "--adx-threshold"
       - "30"
+      - "--min-fill"
+      - "0.53"
     environment:
       PAPER_TRADE: "true"
       ASSET: "eth"
@@ -283,6 +291,7 @@ services:
 
   # hl_orderflow_reversal/btc/5m — fade exhausted Hyperliquid perp flow (contrarian)
   # Inverted HTF gate + 3-of-3 entry vote + pressure-scaled sizing
+  # 2026-03-24: block 03h-08h UTC (EU open chop kills reversal edge; 07h alone: n=19, 21% WR)
   hl-orderflow-reversal-5m-bot:
     <<: *bot-common
     container_name: polymarket-hl-orderflow-reversal-5m-bot
@@ -304,6 +313,8 @@ services:
       - "30.0"
       - "--min-votes"
       - "3"
+      - "--block-hours"
+      - "3,4,5,6,7,8"
     environment:
       PAPER_TRADE: "true"
       ASSET: "btc"
@@ -380,33 +391,41 @@ services:
       HISTORY_FILE: "/app/state/pinbar-hl-5m-history.json"
       LOG_FILE: "/app/state/pinbar-hl-5m-bot.log"
 
-  # RETIRED 2026-03-19: delta_flip/btc/5m — unacceptable max drawdown.
-  # delta-flip-btc-5m-bot:
-  #   <<: *bot-common
-  #   container_name: polymarket-delta-flip-btc-5m-bot
-  #   command:
-  #     - "uv"
-  #     - "run"
-  #     - "python"
-  #     - "scripts/bots/delta_flip_bot.py"
-  #     - "--paper"
-  #     - "--asset"
-  #     - "btc"
-  #     - "--timeframe"
-  #     - "5m"
-  #     - "--gate-timeframe"
-  #     - "4h"
-  #     - "--size"
-  #     - "15.0"
-  #     - "--max-size"
-  #     - "30.0"
-  #   environment:
-  #     PAPER_TRADE: "true"
-  #     ASSET: "btc"
-  #     TIMEFRAME: "5m"
-  #     TRADES_FILE: "/app/state/delta-flip-btc-5m-trades.json"
-  #     HISTORY_FILE: "/app/state/delta-flip-btc-5m-history.json"
-  #     LOG_FILE: "/app/state/delta-flip-btc-5m-bot.log"
+  # delta_flip/btc/5m — zero-crossing on HL cumulative delta
+  # RETIRED 2026-03-19: unacceptable max drawdown (built $207 then gave it all back).
+  # RE-ENABLED 2026-03-24 with targeted fixes:
+  #   - HTF gate: 4h → 1h (faster regime detection, less signal lag)
+  #   - Block 00h-01h UTC (30-45% WR midnight noise)
+  #   - Vol confirm: only fire when current bar volume ≥ rolling 20-bar median
+  delta-flip-btc-5m-bot:
+    <<: *bot-common
+    container_name: polymarket-delta-flip-btc-5m-bot
+    command:
+      - "uv"
+      - "run"
+      - "python"
+      - "scripts/bots/delta_flip_bot.py"
+      - "--paper"
+      - "--asset"
+      - "btc"
+      - "--timeframe"
+      - "5m"
+      - "--gate-timeframe"
+      - "1h"
+      - "--size"
+      - "15.0"
+      - "--max-size"
+      - "30.0"
+      - "--block-hours"
+      - "0,1"
+      - "--vol-confirm"
+    environment:
+      PAPER_TRADE: "true"
+      ASSET: "btc"
+      TIMEFRAME: "5m"
+      TRADES_FILE: "/app/state/delta-flip-btc-5m-trades.json"
+      HISTORY_FILE: "/app/state/delta-flip-btc-5m-history.json"
+      LOG_FILE: "/app/state/delta-flip-btc-5m-bot.log"
 
   # --- Copy Bot (uncomment to enable) ---
   # copy-bot:

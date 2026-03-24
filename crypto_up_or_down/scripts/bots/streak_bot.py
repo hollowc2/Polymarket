@@ -33,6 +33,7 @@ from polymarket_algo.data.binance import fetch_klines
 from polymarket_algo.executor.client import PolymarketClient
 from polymarket_algo.executor.trader import PaperTrader, TradingState
 from polymarket_algo.strategies.gates import TrendFilter, VolAccelGate
+from polymarket_algo.strategies.session_filter import SessionFilter
 from polymarket_algo.strategies.streak_adx import StreakADXStrategy
 from polymarket_algo.strategies.streak_reversal import StreakReversalStrategy
 from polymarket_algo.strategies.streak_rsi import StreakRSIStrategy
@@ -181,8 +182,16 @@ def main():
         "--session-hours",
         type=str,
         default="7-22",
-        metavar="LO-HI",
-        help="UTC hour range for session gate, e.g. '7-22' (default: 7-22)",
+        metavar="RANGES",
+        help="UTC hour ranges for session gate. Single range: '7-22'. "
+        "Multi-range: '2-3,7,9-10,17,19'. Each part is LO-HI or a single hour (default: 7-22).",
+    )
+    parser.add_argument(
+        "--min-fill",
+        type=float,
+        default=0.0,
+        metavar="PRICE",
+        help="Minimum entry token price to accept a bet, e.g. 0.54 (default: 0.0 = off)",
     )
 
     # --- Strategy-specific params (override strategy defaults) ---
@@ -246,8 +255,8 @@ def main():
     gate_type = args.gate
     trend_gate: TrendFilter | None = None
     vol_accel_gate: VolAccelGate | None = None
-    session_lo: int = 7
-    session_hi: int = 22
+    session_filter: SessionFilter | None = None
+    min_fill: float = args.min_fill
     if gate_type == "trend_filter":
         trend_gate = TrendFilter(ema_period=args.ema_period, mode="veto_with_trend")
     elif gate_type == "vol_accel":
@@ -266,8 +275,16 @@ def main():
             boost_factor=args.vol_accel_boost,
         )
     elif gate_type == "session":
-        parts = args.session_hours.split("-")
-        session_lo, session_hi = int(parts[0]), int(parts[1])
+        allowed: list[tuple[int, int]] = []
+        for part in args.session_hours.split(","):
+            part = part.strip()
+            if "-" in part:
+                lo_str, hi_str = part.split("-", 1)
+                allowed.append((int(lo_str.strip()), int(hi_str.strip())))
+            elif part:
+                h = int(part)
+                allowed.append((h, h))
+        session_filter = SessionFilter(allowed_hours=allowed or None)
 
     # Whether we need real Binance candles (strategies with TA indicators or gates using close prices)
     needs_real_candles = strategy_name != "streak_reversal" or gate_type in (
@@ -304,7 +321,7 @@ def main():
     gate_label = (
         f"TrendFilter(ema={args.ema_period}, veto_with_trend)"
         if gate_type == "trend_filter"
-        else f"SessionFilter({session_lo}-{session_hi} UTC)"
+        else f"SessionFilter({args.session_hours} UTC)"
         if gate_type == "session"
         else _va_label
         if gate_type == "vol_accel"
@@ -322,6 +339,8 @@ def main():
     if needs_real_candles:
         log(f"Candles  : real Binance OHLCV ({binance_symbol}, {timeframe}, warmup={candle_warmup})")
     log(f"Max bet  : ${bet_amount:.2f} | Bankroll: ${state.bankroll:.2f}")
+    if min_fill > 0:
+        log(f"Min fill : {min_fill:.3f}")
     log(f"Limits   : max {Config.MAX_DAILY_BETS} bets/day, max ${Config.MAX_DAILY_LOSS} loss/day")
     log(f"Timezone : {TIMEZONE_NAME}")
     log("")
@@ -433,14 +452,8 @@ def main():
             pre_gate_size = float(result.iloc[-1]["size"]) if "size" in result.columns else 0.0
 
             # === APPLY GATE ===
-            if gate_type == "session":
-                # Check the TARGET market's UTC hour (not the last completed candle's hour)
-                target_hour = (target_ts % 86400) // 3600
-                if not (session_lo <= target_hour <= session_hi):
-                    log(f"Session gate: hour {target_hour} UTC outside [{session_lo}, {session_hi}] — skip")
-                    bet_timestamps.add(target_ts)
-                    time.sleep(5)
-                    continue
+            if gate_type == "session" and session_filter is not None:
+                result = session_filter.apply(result, signal_candles)
             elif gate_type in ("trend_filter", "trend_vol_accel") and trend_gate is not None:
                 if real_candles is not None:
                     result = trend_gate.apply(result, real_candles)
@@ -475,6 +488,13 @@ def main():
             entry_price = market.up_price if last_signal == 1 else market.down_price
             if entry_price <= 0:
                 entry_price = 0.5
+
+            # === MIN-FILL GATE ===
+            if min_fill > 0 and last_signal != 0 and entry_price < min_fill:
+                log(f"Min-fill gate: entry_price {entry_price:.3f} < {min_fill} — skip")
+                bet_timestamps.add(target_ts)
+                time.sleep(5)
+                continue
 
             # === INTERPRET SIGNAL (timeframe-aware confidence) ===
             decision = interpret_signal(
