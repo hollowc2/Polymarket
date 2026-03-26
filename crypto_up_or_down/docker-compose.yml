@@ -456,6 +456,316 @@ services:
     restart: unless-stopped
 
   # --- New Bot Template (copy this block for each new bot) ---
+  # ------------------------------------------------------------------ #
+  # Novel uncorrelated strategies (paper mode — new signal classes)   #
+  # ------------------------------------------------------------------ #
+
+  rv-regime-5m-bot:
+    <<: *bot-common
+    container_name: polymarket-rv-regime-5m-bot
+    command:
+      - "uv"
+      - "run"
+      - "python"
+      - "scripts/bots/rv_regime_bot.py"
+      - "--paper"
+      - "--asset"
+      - "btc"
+      - "--timeframe"
+      - "5m"
+    environment:
+      PAPER_TRADE: "true"
+      ASSET: "btc"
+      TIMEFRAME: "5m"
+      TRADES_FILE: "/app/state/rv-regime-5m-trades.json"
+      HISTORY_FILE: "/app/state/rv-regime-5m-history.json"
+      LOG_FILE: "/app/state/rv-regime-5m-bot.log"
+
+  rv-regime-15m-bot:
+    <<: *bot-common
+    container_name: polymarket-rv-regime-15m-bot
+    command:
+      - "uv"
+      - "run"
+      - "python"
+      - "scripts/bots/rv_regime_bot.py"
+      - "--paper"
+      - "--asset"
+      - "btc"
+      - "--timeframe"
+      - "15m"
+    environment:
+      PAPER_TRADE: "true"
+      ASSET: "btc"
+      TIMEFRAME: "15m"
+      TRADES_FILE: "/app/state/rv-regime-15m-trades.json"
+      HISTORY_FILE: "/app/state/rv-regime-15m-history.json"
+      LOG_FILE: "/app/state/rv-regime-15m-bot.log"
+
+  rv-regime-60m-bot:
+    <<: *bot-common
+    container_name: polymarket-rv-regime-60m-bot
+    command:
+      - "uv"
+      - "run"
+      - "python"
+      - "scripts/bots/rv_regime_bot.py"
+      - "--paper"
+      - "--asset"
+      - "btc"
+      - "--timeframe"
+      - "60m"
+    environment:
+      PAPER_TRADE: "true"
+      ASSET: "btc"
+      TIMEFRAME: "60m"
+      TRADES_FILE: "/app/state/rv-regime-60m-trades.json"
+      HISTORY_FILE: "/app/state/rv-regime-60m-history.json"
+      LOG_FILE: "/app/state/rv-regime-60m-bot.log"
+
+  corr-break-5m-bot:
+    <<: *bot-common
+    container_name: polymarket-corr-break-5m-bot
+    command:
+      - "uv"
+      - "run"
+      - "python"
+      - "scripts/bots/corr_break_bot.py"
+      - "--paper"
+      - "--asset"
+      - "btc"
+      - "--timeframe"
+      - "5m"
+    environment:
+      PAPER_TRADE: "true"
+      ASSET: "btc"
+      TIMEFRAME: "5m"
+      TRADES_FILE: "/app/state/corr-break-5m-trades.json"
+      HISTORY_FILE: "/app/state/corr-break-5m-history.json"
+      LOG_FILE: "/app/state/corr-break-5m-bot.log"
+
+  corr-break-15m-bot:
+    <<: *bot-common
+    container_name: polymarket-corr-break-15m-bot
+    command:
+      - "uv"
+      - "run"
+      - "python"
+      - "scripts/bots/corr_break_bot.py"
+      - "--paper"
+      - "--asset"
+      - "btc"
+      - "--timeframe"
+      - "15m"
+    environment:
+      PAPER_TRADE: "true"
+      ASSET: "btc"
+      TIMEFRAME: "15m"
+      TRADES_FILE: "/app/state/corr-break-15m-trades.json"
+      HISTORY_FILE: "/app/state/corr-break-15m-history.json"
+      LOG_FILE: "/app/state/corr-break-15m-bot.log"
+
+  coinbase-premium-5m-bot:
+    <<: *bot-common
+    container_name: polymarket-coinbase-premium-5m-bot
+    command:
+      - "uv"
+      - "run"
+      - "python"
+      - "scripts/bots/coinbase_premium_bot.py"
+      - "--paper"
+      - "--asset"
+      - "btc"
+      - "--timeframe"
+      - "5m"
+    environment:
+      PAPER_TRADE: "true"
+      ASSET: "btc"
+      TIMEFRAME: "5m"
+      TRADES_FILE: "/app/state/coinbase-premium-5m-trades.json"
+      HISTORY_FILE: "/app/state/coinbase-premium-5m-history.json"
+      LOG_FILE: "/app/state/coinbase-premium-5m-bot.log"
+
+  coinbase-premium-15m-bot:
+    <<: *bot-common
+    container_name: polymarket-coinbase-premium-15m-bot
+    command:
+      - "uv"
+      - "run"
+      - "python"
+      - "scripts/bots/coinbase_premium_bot.py"
+      - "--paper"
+      - "--asset"
+      - "btc"
+      - "--timeframe"
+      - "15m"
+    environment:
+      PAPER_TRADE: "true"
+      ASSET: "btc"
+      TIMEFRAME: "15m"
+      TRADES_FILE: "/app/state/coinbase-premium-15m-trades.json"
+      HISTORY_FILE: "/app/state/coinbase-premium-15m-history.json"
+      LOG_FILE: "/app/state/coinbase-premium-15m-bot.log"
+
+  basis-5m-bot:
+    <<: *bot-common
+    container_name: polymarket-basis-5m-bot
+    command:
+      - "uv"
+      - "run"
+      - "python"
+      - "scripts/bots/basis_bot.py"
+      - "--paper"
+      - "--asset"
+      - "btc"
+      - "--timeframe"
+      - "5m"
+    environment:
+      PAPER_TRADE: "true"
+      ASSET: "btc"
+      TIMEFRAME: "5m"
+      TRADES_FILE: "/app/state/basis-5m-trades.json"
+      HISTORY_FILE: "/app/state/basis-5m-history.json"
+      LOG_FILE: "/app/state/basis-5m-bot.log"
+
+  basis-15m-bot:
+    <<: *bot-common
+    container_name: polymarket-basis-15m-bot
+    command:
+      - "uv"
+      - "run"
+      - "python"
+      - "scripts/bots/basis_bot.py"
+      - "--paper"
+      - "--asset"
+      - "btc"
+      - "--timeframe"
+      - "15m"
+    environment:
+      PAPER_TRADE: "true"
+      ASSET: "btc"
+      TIMEFRAME: "15m"
+      TRADES_FILE: "/app/state/basis-15m-trades.json"
+      HISTORY_FILE: "/app/state/basis-15m-history.json"
+      LOG_FILE: "/app/state/basis-15m-bot.log"
+
+  oi-roc-5m-bot:
+    <<: *bot-common
+    container_name: polymarket-oi-roc-5m-bot
+    command:
+      - "uv"
+      - "run"
+      - "python"
+      - "scripts/bots/oi_roc_bot.py"
+      - "--paper"
+      - "--asset"
+      - "btc"
+    environment:
+      PAPER_TRADE: "true"
+      ASSET: "btc"
+      TRADES_FILE: "/app/state/oi-roc-5m-trades.json"
+      HISTORY_FILE: "/app/state/oi-roc-5m-history.json"
+      LOG_FILE: "/app/state/oi-roc-5m-bot.log"
+
+  deribit-skew-15m-bot:
+    <<: *bot-common
+    container_name: polymarket-deribit-skew-15m-bot
+    command:
+      - "uv"
+      - "run"
+      - "python"
+      - "scripts/bots/deribit_skew_bot.py"
+      - "--paper"
+      - "--asset"
+      - "btc"
+      - "--timeframe"
+      - "15m"
+    environment:
+      PAPER_TRADE: "true"
+      ASSET: "btc"
+      TIMEFRAME: "15m"
+      TRADES_FILE: "/app/state/deribit-skew-15m-trades.json"
+      HISTORY_FILE: "/app/state/deribit-skew-15m-history.json"
+      LOG_FILE: "/app/state/deribit-skew-15m-bot.log"
+
+  deribit-skew-60m-bot:
+    <<: *bot-common
+    container_name: polymarket-deribit-skew-60m-bot
+    command:
+      - "uv"
+      - "run"
+      - "python"
+      - "scripts/bots/deribit_skew_bot.py"
+      - "--paper"
+      - "--asset"
+      - "btc"
+      - "--timeframe"
+      - "60m"
+    environment:
+      PAPER_TRADE: "true"
+      ASSET: "btc"
+      TIMEFRAME: "60m"
+      TRADES_FILE: "/app/state/deribit-skew-60m-trades.json"
+      HISTORY_FILE: "/app/state/deribit-skew-60m-history.json"
+      LOG_FILE: "/app/state/deribit-skew-60m-bot.log"
+
+  mispricing-5m-bot:
+    <<: *bot-common
+    container_name: polymarket-mispricing-5m-bot
+    command:
+      - "uv"
+      - "run"
+      - "python"
+      - "scripts/bots/mispricing_bot.py"
+      - "--paper"
+      - "--asset"
+      - "btc"
+    environment:
+      PAPER_TRADE: "true"
+      ASSET: "btc"
+      TRADES_FILE: "/app/state/mispricing-5m-trades.json"
+      HISTORY_FILE: "/app/state/mispricing-5m-history.json"
+      LOG_FILE: "/app/state/mispricing-5m-bot.log"
+
+  resolution-5m-bot:
+    <<: *bot-common
+    container_name: polymarket-resolution-5m-bot
+    command:
+      - "uv"
+      - "run"
+      - "python"
+      - "scripts/bots/resolution_bot.py"
+      - "--paper"
+      - "--asset"
+      - "btc"
+    environment:
+      PAPER_TRADE: "true"
+      ASSET: "btc"
+      TRADES_FILE: "/app/state/resolution-5m-trades.json"
+      HISTORY_FILE: "/app/state/resolution-5m-history.json"
+      LOG_FILE: "/app/state/resolution-5m-bot.log"
+
+  cross-tf-bot:
+    <<: *bot-common
+    container_name: polymarket-cross-tf-bot
+    command:
+      - "uv"
+      - "run"
+      - "python"
+      - "scripts/bots/cross_tf_bot.py"
+      - "--paper"
+      - "--asset"
+      - "btc"
+    environment:
+      PAPER_TRADE: "true"
+      ASSET: "btc"
+      TRADES_FILE: "/app/state/cross-tf-trades.json"
+      HISTORY_FILE: "/app/state/cross-tf-history.json"
+      LOG_FILE: "/app/state/cross-tf-bot.log"
+
+  # ------------------------------------------------------------------ #
+  # Template for new bots (uncomment and customize)                    #
+  # ------------------------------------------------------------------ #
   # my-new-bot:
   #   <<: *bot-common
   #   container_name: polymarket-my-new-bot
