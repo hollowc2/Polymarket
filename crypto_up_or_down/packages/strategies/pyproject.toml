@@ -11,6 +11,15 @@ copytrade = "polymarket_algo.strategies:CopytradeStrategy"
 hl_orderflow_momentum = "polymarket_algo.strategies.hl_orderflow_momentum:HLOrderFlowMomentumStrategy"
 hl_orderflow_reversal = "polymarket_algo.strategies.hl_orderflow_reversal:HLOrderFlowReversalStrategy"
 delta_flip = "polymarket_algo.strategies.delta_flip:DeltaFlipStrategy"
+rv_regime = "polymarket_algo.strategies.rv_regime:RealizedVolRegimeStrategy"
+corr_break = "polymarket_algo.strategies.corr_break:CorrBreakStrategy"
+coinbase_premium = "polymarket_algo.strategies.coinbase_premium:CoinbasePremiumStrategy"
+spot_perp_basis = "polymarket_algo.strategies.spot_perp_basis:SpotPerpBasisStrategy"
+oi_roc = "polymarket_algo.strategies.oi_roc:OIRateOfChangeStrategy"
+deribit_skew = "polymarket_algo.strategies.deribit_skew:DeribitSkewStrategy"
+polymarket_mispricing = "polymarket_algo.strategies.polymarket_mispricing:PolymarketMispricingStrategy"
+resolution_convergence = "polymarket_algo.strategies.resolution_convergence:ResolutionConvergenceStrategy"
+cross_tf_consistency = "polymarket_algo.strategies.cross_tf_consistency:CrossTFConsistencyStrategy"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/polymarket_algo"]

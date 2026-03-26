@@ -2,7 +2,17 @@ from .agg_trades import AggTradeCollector as AggTradeCollector
 from .agg_trades import LiquidationCollector as LiquidationCollector
 from .agg_trades import compute_cvd_candles as compute_cvd_candles
 from .agg_trades import fetch_agg_trades as fetch_agg_trades
+from .binance import compute_basis_candles as compute_basis_candles
+from .binance import compute_oi_candles as compute_oi_candles
 from .binance import fetch_klines as fetch_klines
+from .binance import fetch_open_interest_hist as fetch_open_interest_hist
+from .binance import fetch_perp_klines as fetch_perp_klines
+from .coinbase import compute_premium_candles as compute_premium_candles
+from .coinbase import fetch_coinbase_klines as fetch_coinbase_klines
+from .deribit import compute_deribit_candles as compute_deribit_candles
+from .deribit import fetch_dvol_hourly as fetch_dvol_hourly
+from .deribit import fetch_historical_volatility as fetch_historical_volatility
+from .deribit import fetch_live_skew as fetch_live_skew
 from .enrich import enrich_candles as enrich_candles
 from .funding import compute_funding_candles as compute_funding_candles
 from .funding import fetch_current_funding_rate as fetch_current_funding_rate

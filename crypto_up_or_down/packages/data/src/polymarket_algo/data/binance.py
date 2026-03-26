@@ -451,6 +451,238 @@ def fetch_klines(symbol: str, interval: str, start_ms: int, end_ms: int) -> pd.D
     return df
 
 
+FAPI_BASE = "https://fapi.binance.com"
+FAPI_KLINES_URL = f"{FAPI_BASE}/fapi/v1/klines"
+FAPI_OI_HIST_URL = f"{FAPI_BASE}/futures/data/openInterestHist"
+FAPI_OI_MAX_LIMIT = 500
+
+OI_ZSCORE_WINDOW = 20  # bars for rolling OI z-score
+BASIS_ZSCORE_WINDOW = 20  # bars for rolling basis z-score
+
+
+def fetch_perp_klines(symbol: str, interval: str, start_ms: int, end_ms: int) -> pd.DataFrame:
+    """Fetch OHLCV from Binance futures (perpetual) endpoint.
+
+    Same schema as fetch_klines() but sourced from fapi.binance.com.
+    Used to compute the spot-perp basis (futures premium/discount).
+
+    Args:
+        symbol:    Futures symbol, e.g. "BTCUSDT"
+        interval:  Candle interval, e.g. "5m", "15m", "1h"
+        start_ms:  Start time in milliseconds (UTC)
+        end_ms:    End time in milliseconds (UTC)
+
+    Returns:
+        DataFrame with same schema as fetch_klines(): open_time, open, high,
+        low, close, volume, etc. Indexed by row number; open_time is a column.
+    """
+    rows: list[list] = []
+    cursor = start_ms
+
+    while cursor < end_ms:
+        params = {
+            "symbol": symbol,
+            "interval": interval,
+            "startTime": cursor,
+            "endTime": end_ms,
+            "limit": MAX_LIMIT,
+        }
+        resp = requests.get(FAPI_KLINES_URL, params=params, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+
+        if not data:
+            break
+
+        rows.extend(data)
+        last_open_time = data[-1][0]
+        if last_open_time <= cursor:
+            break
+        cursor = last_open_time + 1
+        time.sleep(0.05)
+
+    if not rows:
+        return pd.DataFrame(
+            columns=[
+                "open_time", "open", "high", "low", "close", "volume",
+                "close_time", "quote_asset_volume", "number_of_trades",
+                "taker_buy_base_asset_volume", "taker_buy_quote_asset_volume", "ignore",
+            ]
+        )
+
+    df = pd.DataFrame(
+        rows,
+        columns=[
+            "open_time", "open", "high", "low", "close", "volume",
+            "close_time", "quote_asset_volume", "number_of_trades",
+            "taker_buy_base_asset_volume", "taker_buy_quote_asset_volume", "ignore",
+        ],
+    )
+    df = df.drop_duplicates(subset=["open_time"]).sort_values("open_time").reset_index(drop=True)
+
+    num_cols = ["open", "high", "low", "close", "volume", "quote_asset_volume",
+                "taker_buy_base_asset_volume", "taker_buy_quote_asset_volume"]
+    for col in num_cols:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    trades_numeric = pd.to_numeric(df["number_of_trades"], errors="coerce")
+    df["number_of_trades"] = pd.Series(trades_numeric, index=df.index).astype("Int64")
+    df["open_time"] = pd.to_datetime(df["open_time"], unit="ms", utc=True)
+    df["close_time"] = pd.to_datetime(df["close_time"], unit="ms", utc=True)
+    return df
+
+
+def fetch_open_interest_hist(symbol: str, period: str, start_ms: int, end_ms: int) -> pd.DataFrame:
+    """Fetch historical open interest from Binance futures data endpoint.
+
+    Open interest is the total number of outstanding contracts, expressed in USD.
+    Rate-of-change in OI (combined with price action) reveals squeeze setups and
+    position unwinding.
+
+    Args:
+        symbol:    Futures symbol, e.g. "BTCUSDT"
+        period:    Aggregation period: "5m", "15m", "30min", "1h", "2h", "4h",
+                   "6h", "12h", "1d". Use "5m" to match 5-min candles.
+        start_ms:  Start time in milliseconds (UTC)
+        end_ms:    End time in milliseconds (UTC)
+
+    Returns:
+        DataFrame with columns:
+          - timestamp (tz-aware UTC datetime)
+          - oi (float): total open interest in USD
+        Sorted ascending by timestamp.
+    """
+    rows: list[dict] = []
+    cursor = start_ms
+
+    while cursor < end_ms:
+        params = {
+            "symbol": symbol,
+            "period": period,
+            "startTime": cursor,
+            "endTime": end_ms,
+            "limit": FAPI_OI_MAX_LIMIT,
+        }
+        resp = requests.get(FAPI_OI_HIST_URL, params=params, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+
+        if not data:
+            break
+
+        rows.extend(data)
+        last_ts = int(data[-1]["timestamp"])
+        if last_ts <= cursor:
+            break
+        cursor = last_ts + 1
+        time.sleep(0.05)
+
+    if not rows:
+        return pd.DataFrame(columns=["timestamp", "oi"])
+
+    df = pd.DataFrame(rows)
+    df = df.rename(columns={"sumOpenInterestValue": "oi", "timestamp": "timestamp_ms"})
+    df["timestamp_ms"] = pd.to_numeric(df["timestamp_ms"], errors="coerce")
+    df["oi"] = pd.to_numeric(df["oi"], errors="coerce")
+    df = df.dropna(subset=["timestamp_ms", "oi"])
+    df = df.drop_duplicates(subset=["timestamp_ms"]).sort_values("timestamp_ms").reset_index(drop=True)
+    df["timestamp"] = pd.to_datetime(df["timestamp_ms"], unit="ms", utc=True)
+    return df[["timestamp", "oi"]]
+
+
+def compute_basis_candles(perp_df: pd.DataFrame, candles_df: pd.DataFrame) -> pd.DataFrame:
+    """Compute spot-perp basis and merge onto spot candles.
+
+    The basis = (perp_close - spot_close) / spot_close. When perps trade at a
+    premium (positive basis), longs are crowded and funding costs are elevated,
+    which historically leads to price reversion. A discount (negative basis)
+    signals crowded shorts.
+
+    Args:
+        perp_df:    Output of fetch_perp_klines(). Must have columns:
+                    open_time (tz-aware UTC), close (float).
+        candles_df: Spot OHLCV DataFrame indexed by tz-aware UTC open_time.
+                    Must contain a 'close' column.
+
+    Returns:
+        candles_df copy with extra columns:
+          - basis: (perp_close - spot_close) / spot_close
+          - basis_zscore: rolling z-score (window=BASIS_ZSCORE_WINDOW)
+        Missing basis data defaults to 0.0.
+    """
+    out = candles_df.copy()
+
+    if perp_df.empty or candles_df.empty:
+        out["basis"] = 0.0
+        out["basis_zscore"] = 0.0
+        return out
+
+    # Align perp close onto candle index
+    perp_series = perp_df.set_index("open_time")["close"]
+    perp_series = perp_series[~perp_series.index.duplicated(keep="first")].sort_index()
+
+    combined_idx = perp_series.index.union(candles_df.index)
+    perp_reindexed = perp_series.reindex(combined_idx).ffill().bfill()
+    perp_at_candles = perp_reindexed.reindex(candles_df.index).fillna(float("nan"))
+
+    spot_close = candles_df["close"]
+    basis = (perp_at_candles - spot_close) / spot_close.replace(0, float("nan"))
+    basis = basis.fillna(0.0)
+
+    roll_mean = basis.rolling(BASIS_ZSCORE_WINDOW, min_periods=5).mean()
+    roll_std = basis.rolling(BASIS_ZSCORE_WINDOW, min_periods=5).std()
+    zscore = (basis - roll_mean) / roll_std.replace(0.0, float("nan"))
+    zscore = zscore.fillna(0.0)
+
+    out["basis"] = basis.values
+    out["basis_zscore"] = zscore.values
+    return out
+
+
+def compute_oi_candles(oi_df: pd.DataFrame, candles_df: pd.DataFrame) -> pd.DataFrame:
+    """Merge open interest data onto candles and compute rate-of-change and z-score.
+
+    Args:
+        oi_df:      Output of fetch_open_interest_hist(). Must have columns:
+                    timestamp (tz-aware UTC), oi (float).
+        candles_df: OHLCV DataFrame indexed by tz-aware UTC open_time.
+
+    Returns:
+        candles_df copy with extra columns:
+          - oi: open interest in USD (forward-filled to candle frequency)
+          - oi_roc: 1-bar rate of change of oi (oi/oi.shift(1) - 1)
+          - oi_zscore: rolling z-score of oi_roc (window=OI_ZSCORE_WINDOW)
+        Missing OI data defaults to 0.0.
+    """
+    out = candles_df.copy()
+
+    if oi_df.empty or candles_df.empty:
+        out["oi"] = 0.0
+        out["oi_roc"] = 0.0
+        out["oi_zscore"] = 0.0
+        return out
+
+    oi_series = oi_df.set_index("timestamp")["oi"]
+    oi_series = oi_series[~oi_series.index.duplicated(keep="first")].sort_index()
+
+    combined_idx = oi_series.index.union(candles_df.index)
+    oi_reindexed = oi_series.reindex(combined_idx).ffill().bfill()
+    oi_at_candles = oi_reindexed.reindex(candles_df.index).fillna(0.0)
+
+    oi_roc = oi_at_candles / oi_at_candles.shift(1).replace(0.0, float("nan")) - 1
+    oi_roc = oi_roc.fillna(0.0)
+
+    roll_mean = oi_roc.rolling(OI_ZSCORE_WINDOW, min_periods=5).mean()
+    roll_std = oi_roc.rolling(OI_ZSCORE_WINDOW, min_periods=5).std()
+    oi_zscore = (oi_roc - roll_mean) / roll_std.replace(0.0, float("nan"))
+    oi_zscore = oi_zscore.fillna(0.0)
+
+    out["oi"] = oi_at_candles.values
+    out["oi_roc"] = oi_roc.values
+    out["oi_zscore"] = oi_zscore.values
+    return out
+
+
 def main() -> None:
     start_ms = int(START.timestamp() * 1000)
     end_ms = int(datetime.now(tz=UTC).timestamp() * 1000)
