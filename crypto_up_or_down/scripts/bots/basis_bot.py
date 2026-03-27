@@ -68,7 +68,7 @@ def main():
     strategy = SpotPerpBasisStrategy()
     eval_params = {"z_thresh": args.z_thresh, "size": args.size}
 
-    client = PolymarketClient(asset=asset, timeframe=timeframe)
+    client = PolymarketClient(asset=asset)
     state = TradingState.load()
     if args.bankroll:
         state.bankroll = args.bankroll
