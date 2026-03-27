@@ -84,7 +84,7 @@ def main():
         "size": args.size,
     }
 
-    client = PolymarketClient(asset=asset, timeframe=poly_tf)
+    client = PolymarketClient(asset=asset)
     state = TradingState.load()
     if args.bankroll:
         state.bankroll = args.bankroll
