@@ -80,7 +80,7 @@ def main():
 
     strategy = DeribitSkewStrategy()
 
-    client = PolymarketClient(asset=asset, timeframe=poly_tf)
+    client = PolymarketClient(asset=asset)
     state = TradingState.load()
     if args.bankroll:
         state.bankroll = args.bankroll

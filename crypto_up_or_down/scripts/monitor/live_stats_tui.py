@@ -59,9 +59,11 @@ def _bots_from_containers() -> list[dict]:
         return _container_cache
     result: list[dict] = []
     try:
+        # First docker call in a fresh uv --script process takes ~4s to connect;
+        # use a generous timeout so it doesn't silently fail and cache an empty list.
         names = subprocess.check_output(
             ["docker", "ps", "--format", "{{.Names}}"],
-            timeout=3, stderr=subprocess.DEVNULL,
+            timeout=10, stderr=subprocess.DEVNULL,
         ).decode().strip().splitlines()
         for name in names:
             if not name.startswith("polymarket-"):
@@ -69,7 +71,7 @@ def _bots_from_containers() -> list[dict]:
             env_out = subprocess.check_output(
                 ["docker", "inspect", "--format",
                  "{{range .Config.Env}}{{println .}}{{end}}", name],
-                timeout=3, stderr=subprocess.DEVNULL,
+                timeout=10, stderr=subprocess.DEVNULL,
             ).decode()
             for line in env_out.splitlines():
                 if line.startswith("HISTORY_FILE="):
