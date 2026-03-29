@@ -32,7 +32,7 @@ DERIBIT_BASE = "https://www.deribit.com/api/v2/public"
 DVOL_HIST_URL = f"{DERIBIT_BASE}/get_historical_volatility"
 DVOL_INDEX_URL = f"{DERIBIT_BASE}/get_volatility_index_data"
 INSTRUMENTS_URL = f"{DERIBIT_BASE}/get_instruments"
-TICKER_URL = f"{DERIBIT_BASE}/get_ticker"
+BOOK_SUMMARY_URL = f"{DERIBIT_BASE}/get_book_summary_by_instrument"
 
 ZSCORE_WINDOW = 20  # bars for rolling iv z-score
 
@@ -216,27 +216,44 @@ def fetch_live_skew(symbol: str) -> float | None:
     calls = {inst["strike"]: inst["instrument_name"] for inst in expiry_opts if inst["option_type"] == "call"}
     puts = {inst["strike"]: inst["instrument_name"] for inst in expiry_opts if inst["option_type"] == "put"}
 
-    # Find strikes common to both (ATM proxy: pick a few near-ATM)
+    # Find strikes common to both, then pick nearest to spot price
     common_strikes = sorted(set(calls) & set(puts))
     if not common_strikes:
         return None
 
-    # Pick the middle strike as ATM proxy (ideally we'd use the forward price)
-    atm_strike = common_strikes[len(common_strikes) // 2]
+    # Fetch Deribit index price to find nearest-to-spot strike (true ATM proxy)
+    spot_price: float | None = None
+    try:
+        idx_resp = requests.get(
+            f"{DERIBIT_BASE}/get_index_price",
+            params={"index_name": f"{currency.lower()}_usd"},
+            timeout=10,
+        )
+        idx_resp.raise_for_status()
+        spot_price = idx_resp.json().get("result", {}).get("index_price")
+    except Exception:
+        pass
+
+    if spot_price is not None:
+        atm_strike = min(common_strikes, key=lambda s: abs(s - spot_price))
+    else:
+        atm_strike = common_strikes[len(common_strikes) // 2]
     call_name = calls.get(atm_strike)
     put_name = puts.get(atm_strike)
     if not call_name or not put_name:
         return None
 
     try:
-        call_resp = requests.get(TICKER_URL, params={"instrument_name": call_name}, timeout=10)
-        put_resp = requests.get(TICKER_URL, params={"instrument_name": put_name}, timeout=10)
+        call_resp = requests.get(BOOK_SUMMARY_URL, params={"instrument_name": call_name}, timeout=10)
+        put_resp = requests.get(BOOK_SUMMARY_URL, params={"instrument_name": put_name}, timeout=10)
         call_resp.raise_for_status()
         put_resp.raise_for_status()
-        call_iv = call_resp.json().get("result", {}).get("mark_iv", None)
-        put_iv = put_resp.json().get("result", {}).get("mark_iv", None)
+        call_result = call_resp.json().get("result", [{}])
+        put_result = put_resp.json().get("result", [{}])
+        call_iv = call_result[0].get("mark_iv") if call_result else None
+        put_iv = put_result[0].get("mark_iv") if put_result else None
     except Exception as exc:
-        print(f"[deribit] Ticker fetch failed: {exc}")
+        print(f"[deribit] Skew fetch failed: {exc}")
         return None
 
     if call_iv is None or put_iv is None:
