@@ -127,18 +127,22 @@ def interpret_signal(
     streak_len, streak_dir = detect_streak(outcomes)
     confidence = get_reversal_rate(timeframe, streak_len, asset)
 
-    # Calculate Kelly-optimal size
+    # Use strategy-computed size when available (CI half-Kelly), otherwise fall back
+    # to quarter-Kelly on the current bankroll.
+    strategy_size = float(last["size"]) if "size" in last.index and float(last["size"]) > 0 else 0.0
     odds = 1.0 / entry_price if entry_price > 0 else 2.0
     kelly = kelly_size(confidence, odds, bankroll)
+    desired = strategy_size if strategy_size > 0 else kelly
 
-    size = min(kelly, max_bet, bankroll * max_bankroll_pct)
+    size = min(desired, max_bet, bankroll * max_bankroll_pct)
     size = max(1.0, size)  # floor at $1
 
     bet_direction_label = direction.upper()
+    size_source = f"CI=${strategy_size:.2f}" if strategy_size > 0 else f"Kelly=${kelly:.2f}"
     reason = (
         f"Streak of {streak_len}x {streak_dir} ({timeframe}) detected. "
         f"Reversal rate: {confidence:.1%}. "
-        f"Betting {bet_direction_label} (Kelly=${kelly:.2f}, capped=${size:.2f})."
+        f"Betting {bet_direction_label} ({size_source}, capped=${size:.2f})."
     )
 
     return BetDecision(

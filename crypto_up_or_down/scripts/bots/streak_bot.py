@@ -249,7 +249,6 @@ def main():
     elif strategy_name == "streak_adx":
         eval_params["adx_period"] = args.adx_period or 14
         eval_params["adx_threshold"] = args.adx_threshold or 25
-        eval_params["use_ci_sizing"] = False
 
     # --- Gate setup ---
     gate_type = args.gate
