@@ -129,8 +129,6 @@ def main():
                 continue
 
             spot = spot.set_index("open_time").sort_index()
-            if not perp.empty:
-                perp = perp.set_index("open_time").sort_index()
             enriched = compute_basis_candles(perp, spot)
 
             result = strategy.evaluate(enriched, **eval_params)
