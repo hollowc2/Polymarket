@@ -47,37 +47,39 @@ services:
   # Walk-forward (2024-2026): test Sharpe 6.60 (close+spread), 6.07 (intrabar_conservative)
   # ema=50 > ema=100 (6.60 vs 6.23); trigger=4; half_spread=0.005 baked into scoring
   # 2026-03-24: added min-fill=0.54 gate (fills <0.55 → 50.7% WR; ≥0.55 → 64.0% WR)
-  reversal-trend-bot:
-    <<: *bot-common
-    container_name: polymarket-reversal-trend-bot
-    command:
-      - "uv"
-      - "run"
-      - "python"
-      - "scripts/bots/streak_bot.py"
-      - "--paper"
-      - "--asset"
-      - "eth"
-      - "--timeframe"
-      - "5m"
-      - "--trigger"
-      - "4"
-      - "--strategy"
-      - "streak_reversal"
-      - "--gate"
-      - "trend_filter"
-      - "--ema-period"
-      - "50"
-      - "--min-fill"
-      - "0.54"
-    environment:
-      PAPER_TRADE: "true"
-      ASSET: "eth"
-      TIMEFRAME: "5m"
-      STRATEGY: "streak_reversal"
-      TRADES_FILE: "/app/state/reversal-trend-trades.json"
-      HISTORY_FILE: "/app/state/reversal-trend-history.json"
-      LOG_FILE: "/app/state/reversal-trend-bot.log"
+  # RETIRED 2026-03-30: reversal-trend-bot — streak_reversal/eth/5m + TrendFilter(50).
+  # Negative live edge; session-gated adx variant supersedes this.
+  # reversal-trend-bot:
+  #   <<: *bot-common
+  #   container_name: polymarket-reversal-trend-bot
+  #   command:
+  #     - "uv"
+  #     - "run"
+  #     - "python"
+  #     - "scripts/bots/streak_bot.py"
+  #     - "--paper"
+  #     - "--asset"
+  #     - "eth"
+  #     - "--timeframe"
+  #     - "5m"
+  #     - "--trigger"
+  #     - "4"
+  #     - "--strategy"
+  #     - "streak_reversal"
+  #     - "--gate"
+  #     - "trend_filter"
+  #     - "--ema-period"
+  #     - "50"
+  #     - "--min-fill"
+  #     - "0.54"
+  #   environment:
+  #     PAPER_TRADE: "true"
+  #     ASSET: "eth"
+  #     TIMEFRAME: "5m"
+  #     STRATEGY: "streak_reversal"
+  #     TRADES_FILE: "/app/state/reversal-trend-trades.json"
+  #     HISTORY_FILE: "/app/state/reversal-trend-history.json"
+  #     LOG_FILE: "/app/state/reversal-trend-bot.log"
 
   # RETIRED 2026-03-09: trend+vol_accel combo — test Sharpe 7.99, same trade count as trend-only (8.06).
   # Vol accel adds no meaningful edge after long_window fix; redundant container.
@@ -711,23 +713,24 @@ services:
       HISTORY_FILE: "/app/state/deribit-skew-60m-history.json"
       LOG_FILE: "/app/state/deribit-skew-60m-bot.log"
 
-  mispricing-5m-bot:
-    <<: *bot-common
-    container_name: polymarket-mispricing-5m-bot
-    command:
-      - "uv"
-      - "run"
-      - "python"
-      - "scripts/bots/mispricing_bot.py"
-      - "--paper"
-      - "--asset"
-      - "btc"
-    environment:
-      PAPER_TRADE: "true"
-      ASSET: "btc"
-      TRADES_FILE: "/app/state/mispricing-5m-trades.json"
-      HISTORY_FILE: "/app/state/mispricing-5m-history.json"
-      LOG_FILE: "/app/state/mispricing-5m-bot.log"
+  # RETIRED 2026-03-30: mispricing-5m-bot — mispricing_bot/btc/5m.
+  # mispricing-5m-bot:
+  #   <<: *bot-common
+  #   container_name: polymarket-mispricing-5m-bot
+  #   command:
+  #     - "uv"
+  #     - "run"
+  #     - "python"
+  #     - "scripts/bots/mispricing_bot.py"
+  #     - "--paper"
+  #     - "--asset"
+  #     - "btc"
+  #   environment:
+  #     PAPER_TRADE: "true"
+  #     ASSET: "btc"
+  #     TRADES_FILE: "/app/state/mispricing-5m-trades.json"
+  #     HISTORY_FILE: "/app/state/mispricing-5m-history.json"
+  #     LOG_FILE: "/app/state/mispricing-5m-bot.log"
 
   # RETIRED 2026-03-27: resolution_bot — CPU hog, pinned cores at 100%.
   # resolution-5m-bot:
