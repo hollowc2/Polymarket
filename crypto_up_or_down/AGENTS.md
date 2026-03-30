@@ -51,6 +51,19 @@ ty check                        # Typecheck
 uv run pytest -v                # Tests
 ```
 
+## Monitoring / Grafana
+
+The Polymarket dashboard runs inside **`butterfly_grafana`** — an external Grafana container (not in this project's docker-compose).
+
+- Dashboard file: `/opt/monitoring/grafana/dashboards/polymarket-crypto.json`
+- Deployed to: `/opt/butterflyguy/infra/grafana/dashboards/` (bind-mounted into the container)
+- Datasources: TimescaleDB (`timescaledb`) + Prometheus (`prometheus`) — provisioned at `/opt/monitoring/grafana/provisioning/`
+- **`polymarket-metrics-server` must be on `monitoring_net`** for Grafana to reach `http://metrics-server:9099`
+  ```bash
+  docker network connect --alias metrics-server monitoring_net polymarket-metrics-server
+  ```
+- To add/update the dashboard, copy the JSON to `/opt/butterflyguy/infra/grafana/dashboards/` — Grafana auto-reloads every 30s.
+
 ## Rules
 - Paper trade first (`--paper`). Never default to live.
 - All config via `.env` — no hardcoded keys or amounts.
