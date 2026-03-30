@@ -28,7 +28,6 @@ from urllib.parse import parse_qs, urlparse
 
 BOTS: list[dict[str, str]] = [
     {"label": "streak-bot", "file": "trade_history_full.json"},
-    {"label": "reversal-trend", "file": "reversal-trend-history.json"},
     {"label": "adx-eth-5m", "file": "adx-eth-5m-history.json"},
     {"label": "hl-orderflow-momo-5m", "file": "hl-orderflow-momo-5m-history.json"},
     {"label": "hl-orderflow-momo-15m", "file": "hl-orderflow-momo-15m-history.json"},
