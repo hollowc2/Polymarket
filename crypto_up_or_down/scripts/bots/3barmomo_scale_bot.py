@@ -64,7 +64,14 @@ def main():
         type=float,
         default=None,
         metavar="USD",
-        help="Max bet size in USD (default: base_size * 2)",
+        help="Max bet size in USD hard cap (overrides --max-size-pct)",
+    )
+    parser.add_argument(
+        "--max-size-pct",
+        type=float,
+        default=0.10,
+        metavar="F",
+        help="Max bet size as fraction of current bankroll (default: 0.10 = 10%%, scales with growth)",
     )
     parser.add_argument(
         "--size-cap",
@@ -104,7 +111,8 @@ def main():
 
     bars = args.bars
     base_size = args.size
-    max_size = args.max_size if args.max_size is not None else base_size * 2
+    max_size_abs = args.max_size  # None means "use pct instead"
+    max_size_pct = args.max_size_pct
     size_cap = args.size_cap
     min_body_pct = args.min_body_pct
     hl_gate = args.hl_gate
@@ -127,9 +135,10 @@ def main():
         log("LIVE trading mode - Real money!")
 
     gate_info = f", hl_gate={hl_coin}" if hl_gate else ""
+    max_size_desc = f"${max_size_abs:.2f} (hard cap)" if max_size_abs is not None else f"{max_size_pct:.0%} of bankroll"
     log(
         f"Strategy: {strategy.name} "
-        f"(bars={bars}, base_size=${base_size:.2f}, max_size=${max_size:.2f}, "
+        f"(bars={bars}, base_size=${base_size:.2f}, max_size={max_size_desc}, "
         f"size_cap={size_cap}x, min_body_pct={min_body_pct}{gate_info})"
     )
     log(f"Bankroll: ${state.bankroll:.2f}")
@@ -251,7 +260,9 @@ def main():
             else:
                 pressure = float(tf_data.get("sell_pressure", 0.5))
 
-            bet_size = min(base_size * pressure * 2, max_size)
+            # max_size scales with current bankroll unless a hard cap was passed
+            effective_max = max_size_abs if max_size_abs is not None else state.bankroll * max_size_pct
+            bet_size = min(base_size * pressure * 2, effective_max)
             bet_size = max(1.0, min(bet_size, state.bankroll * 0.1))
 
             log(f"Signal: {direction.upper()} | pressure={pressure:.2f} | size=${bet_size:.2f}")
