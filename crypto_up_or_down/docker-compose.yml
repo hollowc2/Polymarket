@@ -365,8 +365,6 @@ services:
       - "BTC"
       - "--size"
       - "15.0"
-      - "--max-size"
-      - "30.0"
     environment:
       PAPER_TRADE: "true"
       TRADES_FILE: "/app/state/3barmomo-5m-scale-trades.json"
