@@ -671,47 +671,49 @@ services:
       HISTORY_FILE: "/app/state/oi-roc-5m-history.json"
       LOG_FILE: "/app/state/oi-roc-5m-bot.log"
 
-  deribit-skew-15m-bot:
-    <<: *bot-common
-    container_name: polymarket-deribit-skew-15m-bot
-    command:
-      - "uv"
-      - "run"
-      - "python"
-      - "scripts/bots/deribit_skew_bot.py"
-      - "--paper"
-      - "--asset"
-      - "btc"
-      - "--timeframe"
-      - "15m"
-    environment:
-      PAPER_TRADE: "true"
-      ASSET: "btc"
-      TIMEFRAME: "15m"
-      TRADES_FILE: "/app/state/deribit-skew-15m-trades.json"
-      HISTORY_FILE: "/app/state/deribit-skew-15m-history.json"
-      LOG_FILE: "/app/state/deribit-skew-15m-bot.log"
+  # RETIRED 2026-04-03: deribit-skew-15m-bot — deribit_skew_bot/btc/15m.
+  # deribit-skew-15m-bot:
+  #   <<: *bot-common
+  #   container_name: polymarket-deribit-skew-15m-bot
+  #   command:
+  #     - "uv"
+  #     - "run"
+  #     - "python"
+  #     - "scripts/bots/deribit_skew_bot.py"
+  #     - "--paper"
+  #     - "--asset"
+  #     - "btc"
+  #     - "--timeframe"
+  #     - "15m"
+  #   environment:
+  #     PAPER_TRADE: "true"
+  #     ASSET: "btc"
+  #     TIMEFRAME: "15m"
+  #     TRADES_FILE: "/app/state/deribit-skew-15m-trades.json"
+  #     HISTORY_FILE: "/app/state/deribit-skew-15m-history.json"
+  #     LOG_FILE: "/app/state/deribit-skew-15m-bot.log"
 
-  deribit-skew-60m-bot:
-    <<: *bot-common
-    container_name: polymarket-deribit-skew-60m-bot
-    command:
-      - "uv"
-      - "run"
-      - "python"
-      - "scripts/bots/deribit_skew_bot.py"
-      - "--paper"
-      - "--asset"
-      - "btc"
-      - "--timeframe"
-      - "60m"
-    environment:
-      PAPER_TRADE: "true"
-      ASSET: "btc"
-      TIMEFRAME: "60m"
-      TRADES_FILE: "/app/state/deribit-skew-60m-trades.json"
-      HISTORY_FILE: "/app/state/deribit-skew-60m-history.json"
-      LOG_FILE: "/app/state/deribit-skew-60m-bot.log"
+  # RETIRED 2026-04-03: deribit-skew-60m-bot — deribit_skew_bot/btc/60m.
+  # deribit-skew-60m-bot:
+  #   <<: *bot-common
+  #   container_name: polymarket-deribit-skew-60m-bot
+  #   command:
+  #     - "uv"
+  #     - "run"
+  #     - "python"
+  #     - "scripts/bots/deribit_skew_bot.py"
+  #     - "--paper"
+  #     - "--asset"
+  #     - "btc"
+  #     - "--timeframe"
+  #     - "60m"
+  #   environment:
+  #     PAPER_TRADE: "true"
+  #     ASSET: "btc"
+  #     TIMEFRAME: "60m"
+  #     TRADES_FILE: "/app/state/deribit-skew-60m-trades.json"
+  #     HISTORY_FILE: "/app/state/deribit-skew-60m-history.json"
+  #     LOG_FILE: "/app/state/deribit-skew-60m-bot.log"
 
   # RETIRED 2026-03-30: mispricing-5m-bot — mispricing_bot/btc/5m.
   # mispricing-5m-bot:
