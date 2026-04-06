@@ -492,6 +492,21 @@ class TradingState:
         return True, "OK"
 
     def record_trade(self, trade: Trade):
+        # Stamp the current win/loss streak before recording
+        cw, cl = 0, 0
+        for t in reversed(self.trades):
+            if t.won is None:
+                continue  # skip pending trades
+            if t.won:
+                if cl > 0:
+                    break
+                cw += 1
+            else:
+                if cw > 0:
+                    break
+                cl += 1
+        trade.consecutive_wins = cw
+        trade.consecutive_losses = cl
         self.trades.append(trade)
         self.daily_bets += 1
 
