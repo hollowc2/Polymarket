@@ -62,7 +62,7 @@ def candlestick_trades(
         col=1,
     )
 
-    _add_trade_markers(fig, trades, row=1)
+    _add_trade_markers(fig, trades, row=1, ohlcv=ohlcv)
 
     # Volume bars
     if show_volume:
@@ -100,11 +100,16 @@ def candlestick_trades(
                 col=1,
             )
 
+    # Clamp x-axis to the OHLCV window so equity/marker traces outside the
+    # candle range don't shrink the visible candlebars.
+    x_min = ohlcv.index.min()
+    x_max = ohlcv.index.max()
     fig.update_layout(
         template=_DARK,
         height=720,
         margin={"l": 50, "r": 30, "t": 40, "b": 30},
         xaxis_rangeslider_visible=False,
+        xaxis_range=[x_min, x_max],
         legend={"orientation": "h", "y": 1.02, "x": 0},
     )
     fig.update_yaxes(showgrid=True, gridcolor="rgba(255,255,255,0.05)")
@@ -112,8 +117,33 @@ def candlestick_trades(
     return fig
 
 
-def _add_trade_markers(fig: go.Figure, trades: list[TradeRecord], row: int) -> None:
-    """Add triangular markers for each trade, grouped by direction × outcome."""
+def _snap_to_ohlcv(trade: TradeRecord, ohlcv: pd.DataFrame) -> float:
+    """Return the OHLCV candle price nearest to the trade entry time.
+
+    Places UP entries below the candle low (for visibility) and DOWN entries
+    above the candle high.  Falls back to the candle close if index lookup fails.
+    """
+    idx = ohlcv.index
+    pos = idx.searchsorted(trade.open_time)
+    pos = min(pos, len(idx) - 1)
+    row = ohlcv.iloc[pos]
+    if trade.direction == "up":
+        return float(row["low"]) * 0.9995
+    return float(row["high"]) * 1.0005
+
+
+def _add_trade_markers(
+    fig: go.Figure,
+    trades: list[TradeRecord],
+    row: int,
+    ohlcv: pd.DataFrame | None = None,
+) -> None:
+    """Add triangular markers for each trade, grouped by direction × outcome.
+
+    If *ohlcv* is supplied the markers are snapped to the candle high/low so
+    they sit just outside the wick — keeping the y-axis scaled to BTC prices
+    rather than Polymarket probabilities (0–1).
+    """
     groups = {
         ("up", True):   {"symbol": "triangle-up",        "color": _WIN,     "label": "UP win"},
         ("up", False):  {"symbol": "triangle-up-open",   "color": _LOSS,    "label": "UP loss"},
@@ -133,12 +163,15 @@ def _add_trade_markers(fig: go.Figure, trades: list[TradeRecord], row: int) -> N
         if not group:
             continue
         style = groups[key]
-        y_vals = [t.fill_price if t.fill_price else t.entry_price for t in group]
+        if ohlcv is not None and not ohlcv.empty:
+            y_vals = [_snap_to_ohlcv(t, ohlcv) for t in group]
+        else:
+            y_vals = [t.fill_price if t.fill_price else t.entry_price for t in group]
         sizes = [max(8, min(24, 8 + t.amount / 5)) for t in group]
         hover = [
             (
                 f"<b>{t.direction.upper()}</b> ${t.amount:.2f}<br>"
-                f"Price: {t.fill_price or t.entry_price:.4f}<br>"
+                f"Polymarket price: {t.fill_price or t.entry_price:.4f}<br>"
                 f"PnL: ${t.pnl:+.2f}<br>"
                 f"Strategy: {t.strategy}<br>"
                 f"{t.open_time.strftime('%Y-%m-%d %H:%M UTC')}"
@@ -163,6 +196,136 @@ def _add_trade_markers(fig: go.Figure, trades: list[TradeRecord], row: int) -> N
             row=row,
             col=1,
         )
+
+
+# ── per-trade mini chart ──────────────────────────────────────────────────────
+
+
+def trade_detail_chart(
+    trade: TradeRecord,
+    ohlcv: pd.DataFrame,
+    context_candles: int = 30,
+) -> go.Figure:
+    """Clipped candlestick ±context_candles around a single trade entry.
+
+    Shows the entry marker, a vertical line at entry time, and an annotation
+    with direction / PnL / outcome.
+    """
+    idx = ohlcv.index
+    entry_pos = idx.searchsorted(trade.open_time)
+    lo = max(0, entry_pos - context_candles)
+    hi = min(len(idx), entry_pos + context_candles + 1)
+    window = ohlcv.iloc[lo:hi]
+
+    if window.empty:
+        return _empty(f"No OHLCV data around {trade.open_time:%Y-%m-%d %H:%M}")
+
+    # Outcome styling
+    if trade.won is True:
+        outcome_color = _WIN
+        outcome_label = "WIN"
+    elif trade.won is False:
+        outcome_color = _LOSS
+        outcome_label = "LOSS"
+    else:
+        outcome_color = _PENDING
+        outcome_label = "PENDING"
+
+    bar_colors = [
+        _GREEN if float(c) >= float(o) else _RED
+        for o, c in zip(window["open"], window["close"])
+    ]
+
+    fig = make_subplots(
+        rows=2, cols=1,
+        shared_xaxes=True,
+        row_heights=[0.75, 0.25],
+        vertical_spacing=0.03,
+    )
+
+    # Candlestick
+    fig.add_trace(
+        go.Candlestick(
+            x=window.index,
+            open=window["open"],
+            high=window["high"],
+            low=window["low"],
+            close=window["close"],
+            increasing_line_color=_GREEN,
+            decreasing_line_color=_RED,
+            showlegend=False,
+            name="Price",
+        ),
+        row=1, col=1,
+    )
+
+    # Entry marker — snap to candle high/low so the y-axis stays in BTC price space.
+    # (entry_price / fill_price are Polymarket binary probabilities, 0–1.)
+    marker_y = _snap_to_ohlcv(trade, window)
+    poly_price = trade.fill_price if trade.fill_price else trade.entry_price
+    marker_symbol = "triangle-up" if trade.direction == "up" else "triangle-down"
+    fig.add_trace(
+        go.Scatter(
+            x=[trade.open_time],
+            y=[marker_y],
+            mode="markers+text",
+            marker={
+                "symbol": marker_symbol,
+                "color": outcome_color,
+                "size": 16,
+                "line": {"width": 2, "color": outcome_color},
+            },
+            text=[f"  {trade.direction.upper()}"],
+            textposition="middle right",
+            textfont={"color": outcome_color, "size": 11},
+            showlegend=False,
+            name="Entry",
+        ),
+        row=1, col=1,
+    )
+
+    # Vertical line at entry
+    entry_ts = trade.open_time
+    fig.add_vline(
+        x=entry_ts.timestamp() * 1000,  # plotly expects ms for datetime axes
+        line_dash="dot",
+        line_color=outcome_color,
+        line_width=1,
+        opacity=0.6,
+    )
+
+    # Volume bars
+    if "volume" in window.columns:
+        fig.add_trace(
+            go.Bar(
+                x=window.index,
+                y=window["volume"],
+                marker_color=bar_colors,
+                showlegend=False,
+                name="Volume",
+            ),
+            row=2, col=1,
+        )
+
+    direction_arrow = "▲" if trade.direction == "up" else "▼"
+    pnl_str = f"${trade.pnl:+.2f}" if trade.pnl != 0 else "pending"
+    title = (
+        f"{direction_arrow} {trade.direction.upper()}  |  {outcome_label}  |  {pnl_str}  |  "
+        f"${trade.amount:.2f}  @  {poly_price:.4f}  |  "
+        f"{trade.open_time:%Y-%m-%d %H:%M UTC}"
+    )
+
+    fig.update_layout(
+        template=_DARK,
+        title={"text": title, "font": {"size": 13, "color": outcome_color}},
+        height=400,
+        margin={"l": 50, "r": 30, "t": 50, "b": 30},
+        xaxis_rangeslider_visible=False,
+        xaxis2_rangeslider_visible=False,
+    )
+    fig.update_yaxes(showgrid=True, gridcolor="rgba(255,255,255,0.05)")
+    fig.update_xaxes(showgrid=False)
+    return fig
 
 
 # ── standalone charts ─────────────────────────────────────────────────────────
