@@ -259,8 +259,8 @@ def trade_detail_chart(
         row=1, col=1,
     )
 
-    # Entry marker — snap to candle high/low so the y-axis stays in BTC price space.
-    # (entry_price / fill_price are Polymarket binary probabilities, 0–1.)
+    # Signal marker — snap to candle high/low so the triangle sits outside the wick.
+    # (entry_price / fill_price are Polymarket binary probabilities, 0–1, not BTC prices.)
     marker_y = _snap_to_ohlcv(trade, window)
     poly_price = trade.fill_price if trade.fill_price else trade.entry_price
     marker_symbol = "triangle-up" if trade.direction == "up" else "triangle-down"
@@ -279,7 +279,7 @@ def trade_detail_chart(
             textposition="middle right",
             textfont={"color": outcome_color, "size": 11},
             showlegend=False,
-            name="Entry",
+            name="Signal",
         ),
         row=1, col=1,
     )
@@ -293,6 +293,77 @@ def trade_detail_chart(
         line_width=1,
         opacity=0.6,
     )
+
+    # ── Entry fill marker ────────────────────────────────────────────────────
+    # For live trades use executed_at (actual order time); fall back to open_time.
+    fill_ts = trade.executed_at if trade.executed_at else trade.open_time
+    fill_pos = min(idx.searchsorted(fill_ts), len(idx) - 1)
+    entry_fill_btc = float(ohlcv.iloc[fill_pos]["close"])
+    fig.add_trace(
+        go.Scatter(
+            x=[idx[fill_pos]],
+            y=[entry_fill_btc],
+            mode="markers",
+            marker={
+                "symbol": "circle",
+                "color": outcome_color,
+                "size": 10,
+                "line": {"width": 1.5, "color": "#000"},
+            },
+            name="Entry fill",
+            showlegend=True,
+            hovertemplate=(
+                f"<b>Entry fill</b><br>"
+                f"BTC: ${entry_fill_btc:,.2f}<br>"
+                f"Poly price: {poly_price:.4f}<extra></extra>"
+            ),
+        ),
+        row=1, col=1,
+    )
+
+    # ── Exit fill marker ─────────────────────────────────────────────────────
+    # Resolution is next-candle close (same logic as backtest engine).
+    exit_pos = min(entry_pos + 1, len(idx) - 1)
+    if exit_pos != entry_pos:  # guard: don't duplicate if at last candle
+        exit_ts = idx[exit_pos]
+        exit_fill_btc = float(ohlcv.iloc[exit_pos]["close"])
+        exit_color = _WIN if trade.won is True else (_LOSS if trade.won is False else _PENDING)
+        fig.add_trace(
+            go.Scatter(
+                x=[exit_ts],
+                y=[exit_fill_btc],
+                mode="markers",
+                marker={
+                    "symbol": "circle",
+                    "color": exit_color,
+                    "size": 10,
+                    "line": {"width": 1.5, "color": "#000"},
+                    "opacity": 0.75,
+                },
+                name="Exit fill",
+                showlegend=True,
+                hovertemplate=(
+                    f"<b>Exit fill</b><br>"
+                    f"BTC: ${exit_fill_btc:,.2f}<br>"
+                    f"Move: ${exit_fill_btc - entry_fill_btc:+,.2f}"
+                    f"  ({(exit_fill_btc/entry_fill_btc - 1)*100:+.2f}%)"
+                    f"<extra></extra>"
+                ),
+            ),
+            row=1, col=1,
+        )
+        # Connecting line between entry and exit fills
+        fig.add_trace(
+            go.Scatter(
+                x=[idx[fill_pos], exit_ts],
+                y=[entry_fill_btc, exit_fill_btc],
+                mode="lines",
+                line={"color": exit_color, "width": 1.5, "dash": "dot"},
+                showlegend=False,
+                hoverinfo="skip",
+            ),
+            row=1, col=1,
+        )
 
     # Volume bars
     if "volume" in window.columns:
