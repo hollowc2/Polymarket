@@ -234,6 +234,28 @@ with tab_chart:
     fig = charts.candlestick_trades(ohlcv_window, trades, show_volume=show_vol, show_equity=show_eq)
     st.plotly_chart(fig, width="stretch")
 
+    st.divider()
+    st.subheader("Trade Detail")
+
+    # Build labels for the selector — sorted by time
+    sorted_trades = sorted(trades, key=lambda t: t.open_time)
+    def _trade_label(i: int, t: TradeRecord) -> str:
+        outcome = "✓" if t.won is True else ("✗" if t.won is False else "?")
+        pnl_str = f"${t.pnl:+.2f}" if t.pnl != 0 else "pending"
+        return f"#{i+1}  {t.open_time:%Y-%m-%d %H:%M}  {t.direction.upper()}  {outcome}  {pnl_str}"
+
+    trade_labels = [_trade_label(i, t) for i, t in enumerate(sorted_trades)]
+
+    col_sel, col_ctx = st.columns([4, 1])
+    selected_label = col_sel.selectbox("Select trade", trade_labels, label_visibility="collapsed")
+    context_n = col_ctx.number_input("Context candles", min_value=5, max_value=200, value=30, step=5)
+
+    if selected_label:
+        sel_idx = trade_labels.index(selected_label)
+        sel_trade = sorted_trades[sel_idx]
+        mini_fig = charts.trade_detail_chart(sel_trade, ohlcv_df, context_candles=int(context_n))
+        st.plotly_chart(mini_fig, width="stretch")
+
 with tab_time:
     col1, col2 = st.columns(2)
     metric_sel = col1.radio("Metric", ["win_rate", "pnl"], horizontal=True)
