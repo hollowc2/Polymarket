@@ -18,6 +18,8 @@ class ThreeBarMoMoStrategy:
             "size": 15.0,  # base bet in USD
             "size_cap": 2.0,  # max multiplier for vol-scaled size
             "min_body_pct": 0.0,  # min candle body as % of close (0 = off)
+            "max_vol_spike": 3.0,  # veto if current vol > N×20-bar mean (0 = off)
+            "vol_spike_lookback": 20,  # rolling window for vol spike baseline
             "hl_gate": False,  # veto signals when HL 5m+15m both oppose
             "hl_coin": "BTC",  # coin to check for HL gate
         }
@@ -29,6 +31,7 @@ class ThreeBarMoMoStrategy:
             "size": [10.0, 15.0, 20.0],
             "size_cap": [1.5, 2.0, 3.0],
             "min_body_pct": [0.0, 0.001, 0.002, 0.005],
+            "max_vol_spike": [0.0, 2.5, 3.0, 4.0],
         }
 
     def evaluate(self, candles: pd.DataFrame, **params: Any) -> pd.DataFrame:
@@ -37,6 +40,8 @@ class ThreeBarMoMoStrategy:
         size_val = float(config["size"])
         size_cap = float(config["size_cap"])
         min_body_pct = float(config["min_body_pct"])
+        max_vol_spike = float(config["max_vol_spike"])
+        vol_spike_lookback = int(config["vol_spike_lookback"])
 
         body = candles["close"] - candles["open"]
         # Vectorized direction: 1 (bullish), -1 (bearish), 0 (doji)
@@ -66,8 +71,16 @@ class ThreeBarMoMoStrategy:
         vol_first = volumes.shift(bars - 1)
         vol_ratio = (volumes / vol_first).clip(upper=size_cap).fillna(1.0)
 
-        bullish = all_bullish & all_vol_increasing & body_ok
-        bearish = all_bearish & all_vol_increasing & body_ok
+        # Vol spike gate: veto signals when current bar volume is an outlier vs rolling baseline
+        if max_vol_spike > 0:
+            vol_ma = volumes.rolling(vol_spike_lookback, min_periods=vol_spike_lookback // 2).mean()
+            vol_spike_ok = (volumes / vol_ma.replace(0, float("nan"))) <= max_vol_spike
+            vol_spike_ok = vol_spike_ok.fillna(True)
+        else:
+            vol_spike_ok = pd.Series(True, index=candles.index)
+
+        bullish = all_bullish & all_vol_increasing & body_ok & vol_spike_ok
+        bearish = all_bearish & all_vol_increasing & body_ok & vol_spike_ok
 
         signal = bullish.astype(int) - bearish.astype(int)
         size = pd.Series(0.0, index=candles.index)

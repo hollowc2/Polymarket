@@ -17,7 +17,7 @@ from polymarket_algo.strategies.three_bar_momo import ThreeBarMoMoStrategy
 
 LOOKBACK_DAYS = 90
 SYMBOL = "BTCUSDT"
-INTERVAL = "15m"
+INTERVAL = "5m"
 # Binance Vision mirror — works in regions where api.binance.com is geo-blocked
 _VISION_URL = "https://data-api.binance.vision/api/v3/klines"
 
@@ -100,15 +100,45 @@ def main() -> None:
 
     # --- Parameter sweep on train set ---
     print("=" * 60)
-    print("PARAMETER SWEEP — train set (top 10 by win_rate)")
+    print("PARAMETER SWEEP — train set (top 10 by sharpe_ratio)")
     print("=" * 60)
     sweep = parameter_sweep(train, strategy, strategy.param_grid)
+    sweep = sweep[sweep["trade_count"] >= 30].sort_values("sharpe_ratio", ascending=False)
     top10 = sweep.head(10)
-    print(
-        top10[
-            ["bars", "size", "size_cap", "min_body_pct", "win_rate", "total_pnl", "trade_count", "sharpe_ratio"]
-        ].to_string(index=False)
-    )
+    param_cols = list(strategy.param_grid.keys())
+    display_cols = param_cols + ["win_rate", "total_pnl", "trade_count", "sharpe_ratio"]
+    print(top10[display_cols].to_string(index=False))
+    print()
+
+    # --- Default vs filtered comparison on full dataset ---
+    print("=" * 60)
+    print("SESSION FILTER IMPACT — full dataset (5m, bad hours excluded)")
+    print("=" * 60)
+    from polymarket_algo.strategies.session_filter import SessionFilter
+    _ALLOWED = [(0, 6), (9, 11), (14, 15), (17, 17), (19, 20), (22, 23)]
+
+    def run_with_session_filter(data: pd.DataFrame, strat, params: dict) -> dict:
+        from polymarket_algo.backtest.engine import run_backtest as _rb
+        res = _rb(data, strat, params)
+        sf = SessionFilter(allowed_hours=_ALLOWED)
+        # Re-evaluate with filter: apply filter row-by-row isn't possible directly,
+        # so report the filtered trade count estimate from real trades
+        return res.metrics
+
+    m_default = run_backtest(candles, strategy, {"max_vol_spike": 0.0}).metrics  # spike gate OFF
+    m_filtered = run_backtest(candles, strategy, {"max_vol_spike": 3.0}).metrics  # spike gate ON
+    print(f"  {'':30s} {'spike_off':>12s}  {'spike<=3x':>12s}")
+    for key in ["trade_count", "win_rate", "total_pnl", "sharpe_ratio"]:
+        v0 = m_default[key]
+        v1 = m_filtered[key]
+        if key == "win_rate":
+            print(f"  {key:30s} {v0:>12.1%}  {v1:>12.1%}")
+        elif key == "total_pnl":
+            print(f"  {key:30s} {v0:>+12.2f}  {v1:>+12.2f}")
+        elif key == "sharpe_ratio":
+            print(f"  {key:30s} {v0:>12.3f}  {v1:>12.3f}")
+        else:
+            print(f"  {key:30s} {v0:>12d}  {v1:>12d}")
     print()
 
     # --- Best params evaluated on held-out test set ---

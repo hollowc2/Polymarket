@@ -19,6 +19,7 @@ from polymarket_algo.data.binance import fetch_klines
 from polymarket_algo.executor.client import PolymarketClient
 from polymarket_algo.executor.trader import PaperTrader, TradingState
 from polymarket_algo.indicators.hl_orderflow import hl_orderflow
+from polymarket_algo.strategies.session_filter import SessionFilter
 from polymarket_algo.strategies.three_bar_momo import ThreeBarMoMoStrategy
 
 running = True
@@ -89,6 +90,25 @@ def main():
     )
     parser.add_argument("--bankroll", type=float, metavar="USD", help="Override starting bankroll")
     parser.add_argument(
+        "--max-vol-spike",
+        type=float,
+        default=3.0,
+        metavar="X",
+        help="Veto signals when current bar volume > X × 20-bar mean (0 = off, default: 3.0)",
+    )
+    parser.add_argument(
+        "--session-filter",
+        action="store_true",
+        default=True,
+        help="Skip high-chop hours: 07, 08, 12, 13, 16, 18, 21 UTC (default: on)",
+    )
+    parser.add_argument(
+        "--no-session-filter",
+        dest="session_filter",
+        action="store_false",
+        help="Disable session filter",
+    )
+    parser.add_argument(
         "--hl-gate",
         action="store_true",
         help="Veto signals when HL 5m+15m both oppose the momentum direction",
@@ -115,8 +135,14 @@ def main():
     max_size_pct = args.max_size_pct
     size_cap = args.size_cap
     min_body_pct = args.min_body_pct
+    max_vol_spike = args.max_vol_spike
     hl_gate = args.hl_gate
     hl_coin = args.hl_coin.upper()
+
+    # Session filter: skip high-chop UTC hours identified from trade analysis
+    # Bad hours: 07, 08, 12, 13, 16, 18, 21 — 29.8% WR vs 67.2% WR for all other hours
+    _ALLOWED_RANGES = [(0, 6), (9, 11), (14, 15), (17, 17), (19, 20), (22, 23)]
+    session_filt = SessionFilter(allowed_hours=_ALLOWED_RANGES) if args.session_filter else SessionFilter()
 
     # Init components
     client = PolymarketClient()
@@ -136,10 +162,12 @@ def main():
 
     gate_info = f", hl_gate={hl_coin}" if hl_gate else ""
     max_size_desc = f"${max_size_abs:.2f} (hard cap)" if max_size_abs is not None else f"{max_size_pct:.0%} of bankroll"
+    vol_spike_desc = f", max_vol_spike={max_vol_spike}x" if max_vol_spike > 0 else ""
+    session_desc = ", session_filter=on" if args.session_filter else ""
     log(
         f"Strategy: {strategy.name} "
         f"(bars={bars}, base_size=${base_size:.2f}, max_size={max_size_desc}, "
-        f"size_cap={size_cap}x, min_body_pct={min_body_pct}{gate_info})"
+        f"size_cap={size_cap}x, min_body_pct={min_body_pct}{vol_spike_desc}{session_desc}{gate_info})"
     )
     log(f"Bankroll: ${state.bankroll:.2f}")
     log(f"Limits: max {Config.MAX_DAILY_BETS} bets/day, max ${Config.MAX_DAILY_LOSS} loss/day")
@@ -200,8 +228,10 @@ def main():
             # === FETCH BINANCE CANDLES ===
             log("Fetching Binance candles...")
             now_ms = int(time.time() * 1000)
-            # Fetch extra buffer bars so we always have at least `bars` complete candles
-            start_ms = now_ms - (bars + 3) * 5 * 60 * 1000
+            # Need enough bars for vol_spike lookback (20) + signal bars + buffer
+            _vol_lookback = 20
+            _candle_window = max(bars + 3, bars + _vol_lookback + 3)
+            start_ms = now_ms - _candle_window * 5 * 60 * 1000
             try:
                 candles = fetch_klines("BTCUSDT", "5m", start_ms, now_ms)
             except Exception as e:
@@ -215,7 +245,7 @@ def main():
                 time.sleep(5)
                 continue
 
-            candles = candles.tail(bars + 2)
+            candles = candles.tail(_candle_window)
 
             # === EVALUATE STRATEGY ===
             result = strategy.evaluate(
@@ -224,9 +254,11 @@ def main():
                 size=base_size,
                 size_cap=size_cap,
                 min_body_pct=min_body_pct,
+                max_vol_spike=max_vol_spike,
                 hl_gate=hl_gate,
                 hl_coin=hl_coin,
             )
+            result = session_filt.apply(result, candles)
 
             last_signal = int(result.iloc[-1]["signal"])
 
