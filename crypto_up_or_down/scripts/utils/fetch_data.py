@@ -38,6 +38,9 @@ def main() -> None:
                 combined["open_time"] = pd.to_datetime(combined["open_time"], utc=True)
                 if "close_time" in combined.columns:
                     combined["close_time"] = pd.to_datetime(combined["close_time"], utc=True, errors="coerce")
+                for col in combined.columns:
+                    if col not in ("open_time", "close_time") and combined[col].dtype == object:
+                        combined[col] = pd.to_numeric(combined[col], errors="coerce")
                 combined = combined.drop_duplicates(subset=["open_time"]).sort_values("open_time").reset_index(drop=True)
             else:
                 combined = new_df

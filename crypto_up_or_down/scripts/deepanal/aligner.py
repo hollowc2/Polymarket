@@ -41,9 +41,12 @@ def _refresh_ohlcv(path: Path, asset: str, tf: str) -> None:
 
         combined = pd.concat([existing, new_df], ignore_index=True)
         combined["open_time"] = pd.to_datetime(combined["open_time"], utc=True)
-        # Normalise close_time — mixed Timestamp/NaT causes pyarrow write failures
         if "close_time" in combined.columns:
             combined["close_time"] = pd.to_datetime(combined["close_time"], utc=True, errors="coerce")
+        # Coerce any object columns that should be numeric (mixed types after concat)
+        for col in combined.columns:
+            if col not in ("open_time", "close_time") and combined[col].dtype == object:
+                combined[col] = pd.to_numeric(combined[col], errors="coerce")
         combined = (
             combined.drop_duplicates(subset=["open_time"])
             .sort_values("open_time")
