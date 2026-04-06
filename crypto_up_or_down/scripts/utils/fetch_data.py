@@ -36,6 +36,8 @@ def main() -> None:
             if existing is not None:
                 combined = pd.concat([existing, new_df], ignore_index=True)
                 combined["open_time"] = pd.to_datetime(combined["open_time"], utc=True)
+                if "close_time" in combined.columns:
+                    combined["close_time"] = pd.to_datetime(combined["close_time"], utc=True, errors="coerce")
                 combined = combined.drop_duplicates(subset=["open_time"]).sort_values("open_time").reset_index(drop=True)
             else:
                 combined = new_df
