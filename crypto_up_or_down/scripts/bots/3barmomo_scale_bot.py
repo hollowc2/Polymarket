@@ -245,7 +245,7 @@ def main():
                 time.sleep(5)
                 continue
 
-            candles = candles.tail(_candle_window)
+            candles = candles.tail(_candle_window).set_index("open_time")
 
             # === EVALUATE STRATEGY ===
             result = strategy.evaluate(
