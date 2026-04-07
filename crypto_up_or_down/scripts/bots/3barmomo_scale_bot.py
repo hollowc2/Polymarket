@@ -292,12 +292,13 @@ def main():
             else:
                 pressure = float(tf_data.get("sell_pressure", 0.5))
 
-            # max_size scales with current bankroll unless a hard cap was passed
+            # Dynamic base: half the bankroll cap so full pressure hits exactly the max
             effective_max = max_size_abs if max_size_abs is not None else state.bankroll * max_size_pct
-            bet_size = min(base_size * pressure * 2, effective_max)
-            bet_size = max(1.0, min(bet_size, state.bankroll * 0.1))
+            dynamic_base = effective_max / 2
+            bet_size = min(dynamic_base * pressure * 2, effective_max)
+            bet_size = max(1.0, min(bet_size, state.bankroll * max_size_pct))
 
-            log(f"Signal: {direction.upper()} | pressure={pressure:.2f} | size=${bet_size:.2f}")
+            log(f"Signal: {direction.upper()} | pressure={pressure:.2f} | base=${dynamic_base:.2f} | size=${bet_size:.2f}")
 
             # === BANKROLL CHECK ===
             can_trade, reason = state.can_trade(bet_size=bet_size)
