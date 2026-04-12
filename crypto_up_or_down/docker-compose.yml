@@ -609,26 +609,27 @@ services:
   #     HISTORY_FILE: "/app/state/coinbase-premium-15m-history.json"
   #     LOG_FILE: "/app/state/coinbase-premium-15m-bot.log"
 
-  basis-5m-bot:
-    <<: *bot-common
-    container_name: polymarket-basis-5m-bot
-    command:
-      - "uv"
-      - "run"
-      - "python"
-      - "scripts/bots/basis_bot.py"
-      - "--paper"
-      - "--asset"
-      - "btc"
-      - "--timeframe"
-      - "5m"
-    environment:
-      PAPER_TRADE: "true"
-      ASSET: "btc"
-      TIMEFRAME: "5m"
-      TRADES_FILE: "/app/state/basis-5m-trades.json"
-      HISTORY_FILE: "/app/state/basis-5m-history.json"
-      LOG_FILE: "/app/state/basis-5m-bot.log"
+  # basis-5m-bot: RETIRED — bankroll hit $0, paper-mode only, no longer providing value (2026-04-12)
+  # basis-5m-bot:
+  #   <<: *bot-common
+  #   container_name: polymarket-basis-5m-bot
+  #   command:
+  #     - "uv"
+  #     - "run"
+  #     - "python"
+  #     - "scripts/bots/basis_bot.py"
+  #     - "--paper"
+  #     - "--asset"
+  #     - "btc"
+  #     - "--timeframe"
+  #     - "5m"
+  #   environment:
+  #     PAPER_TRADE: "true"
+  #     ASSET: "btc"
+  #     TIMEFRAME: "5m"
+  #     TRADES_FILE: "/app/state/basis-5m-trades.json"
+  #     HISTORY_FILE: "/app/state/basis-5m-history.json"
+  #     LOG_FILE: "/app/state/basis-5m-bot.log"
 
   basis-15m-bot:
     <<: *bot-common
