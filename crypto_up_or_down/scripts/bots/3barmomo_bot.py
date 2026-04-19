@@ -18,9 +18,14 @@ from polymarket_algo.core.config import LOCAL_TZ, TIMEZONE_NAME, Config
 from polymarket_algo.data.binance import fetch_klines
 from polymarket_algo.executor.client import PolymarketClient
 from polymarket_algo.executor.trader import PaperTrader, TradingState
+from polymarket_algo.indicators.hl_orderflow import hl_orderflow_signal
+from polymarket_algo.indicators.regime import regime_ok
 from polymarket_algo.strategies.three_bar_momo import ThreeBarMoMoStrategy
 
 running = True
+
+# Seconds before the new window to re-confirm the signal (after initial check)
+_CONFIRM_SECONDS_BEFORE = 5
 
 
 def handle_signal(sig, _frame):
@@ -32,6 +37,31 @@ def handle_signal(sig, _frame):
 def log(msg: str):
     ts = datetime.now(LOCAL_TZ).strftime("%H:%M:%S")
     print(f"[{ts}] {msg}")
+
+
+def _check_hl_gate(signal_dir: int, hl_coin: str) -> tuple[bool, str]:
+    """Return (vetoed, reason). Veto when both 5m+15m strongly oppose signal."""
+    sig_5m = hl_orderflow_signal(hl_coin, "5m")
+    sig_15m = hl_orderflow_signal(hl_coin, "15m")
+    if signal_dir == 1 and sig_5m == "SELL" and sig_15m == "SELL":
+        return True, f"HL gate veto UP: {hl_coin} 5m={sig_5m} 15m={sig_15m}"
+    if signal_dir == -1 and sig_5m == "BUY" and sig_15m == "BUY":
+        return True, f"HL gate veto DOWN: {hl_coin} 5m={sig_5m} 15m={sig_15m}"
+    return False, f"{sig_5m}/{sig_15m}"
+
+
+def _get_ask_depth(client: PolymarketClient, token_id: str) -> float:
+    """Return best ask-level USD depth (price × size). 0.0 on failure."""
+    try:
+        book = client.get_orderbook(token_id)
+        if not book:
+            return 0.0
+        asks = sorted(book.get("asks", []), key=lambda x: float(x["price"]))
+        if not asks:
+            return 0.0
+        return float(asks[0]["price"]) * float(asks[0]["size"])
+    except Exception:
+        return 0.0
 
 
 def main():
@@ -75,9 +105,9 @@ def main():
     parser.add_argument(
         "--block-hours",
         type=str,
-        default="16,17,20",
+        default="9,16,17,20",
         metavar="H,H,...",
-        help="Comma-separated UTC hours to skip (default: 16,17,20)",
+        help="Comma-separated UTC hours to skip (default: 9,16,17,20)",
     )
     parser.add_argument(
         "--hl-gate",
@@ -89,6 +119,32 @@ def main():
         default="BTC",
         metavar="COIN",
         help="HL coin for gate check: BTC, ETH, SOL, XRP (default: BTC)",
+    )
+    parser.add_argument(
+        "--min-market-vol",
+        type=float,
+        default=Config.MIN_MARKET_VOL,
+        metavar="USD",
+        help=f"Skip markets with total volume below this USD threshold (default: {Config.MIN_MARKET_VOL})",
+    )
+    parser.add_argument(
+        "--min-ask-depth-mult",
+        type=float,
+        default=Config.MIN_ASK_DEPTH_MULT,
+        metavar="X",
+        help=f"Require ask-side depth >= bet_size × X before placing (default: {Config.MIN_ASK_DEPTH_MULT})",
+    )
+    parser.add_argument(
+        "--regime-gate",
+        action="store_true",
+        help="Skip signals when BTC 1h ATR percentile rank is below --regime-atr-floor (ranging regime)",
+    )
+    parser.add_argument(
+        "--regime-atr-floor",
+        type=float,
+        default=25.0,
+        metavar="PCT",
+        help="ATR percentile rank floor for regime gate (default: 25.0 = bottom quartile = ranging)",
     )
     args = parser.parse_args()
 
@@ -107,6 +163,10 @@ def main():
     hl_gate = args.hl_gate
     hl_coin = args.hl_coin.upper()
     block_hours: set[int] = {int(h.strip()) for h in args.block_hours.split(",") if h.strip()}
+    min_market_vol = args.min_market_vol
+    min_ask_depth_mult = args.min_ask_depth_mult
+    use_regime_gate = args.regime_gate
+    regime_atr_floor = args.regime_atr_floor
 
     # Init components
     client = PolymarketClient()
@@ -125,14 +185,16 @@ def main():
         log("LIVE trading mode - Real money!")
 
     gate_info = f", hl_gate={hl_coin}" if hl_gate else ""
+    regime_info = f", regime_gate(atr≥p{regime_atr_floor:.0f})" if use_regime_gate else ""
     log(
         f"Strategy: {strategy.name} "
         f"(bars={bars}, base_bet=${bet_amount:.2f}, size_cap={size_cap}x, "
-        f"min_body_pct={min_body_pct}{gate_info})"
+        f"min_body_pct={min_body_pct}{gate_info}{regime_info})"
     )
     log(f"Block hours (UTC): {sorted(block_hours) if block_hours else 'none'}")
+    log(f"Min market vol: ${min_market_vol:.0f} | Min ask depth: {min_ask_depth_mult}× bet")
     log(f"Bankroll: ${state.bankroll:.2f}")
-    log(f"Limits: max {Config.MAX_DAILY_BETS} bets/day, max ${Config.MAX_DAILY_LOSS} loss/day")
+    log(f"Limits: max {Config.MAX_DAILY_BETS} bets/day, max ${Config.MAX_DAILY_LOSS} loss/day, max {Config.MAX_CONSEC_LOSSES} consec losses")
     log(f"Timezone: {TIMEZONE_NAME}")
     log("")
 
@@ -195,10 +257,16 @@ def main():
                 time.sleep(5)
                 continue
 
-            # === FETCH BINANCE CANDLES ===
+            # === REGIME GATE (1h ATR percentile) ===
+            if use_regime_gate and not regime_ok(atr_pct_floor=regime_atr_floor):
+                log(f"Regime gate: BTC ATR below p{regime_atr_floor:.0f} (ranging) — skip")
+                bet_timestamps.add(target_ts)
+                time.sleep(5)
+                continue
+
+            # === FETCH BINANCE CANDLES (initial) ===
             log("Fetching Binance candles...")
             now_ms = int(time.time() * 1000)
-            # Fetch extra buffer bars so we always have at least `bars` complete candles
             start_ms = now_ms - (bars + 3) * 5 * 60 * 1000
             try:
                 candles = fetch_klines("BTCUSDT", "5m", start_ms, now_ms)
@@ -215,27 +283,77 @@ def main():
 
             candles = candles.tail(bars + 2)
 
-            # === EVALUATE STRATEGY ===
+            # === EVALUATE STRATEGY (without HL gate — gate handled separately for metadata) ===
             result = strategy.evaluate(
                 candles,
                 bars=bars,
                 size=bet_amount,
                 size_cap=size_cap,
                 min_body_pct=min_body_pct,
-                hl_gate=hl_gate,
-                hl_coin=hl_coin,
+                hl_gate=False,  # gate checked below so we can record metadata
             )
 
-            last_signal = int(result.iloc[-1]["signal"])
+            initial_signal = int(result.iloc[-1]["signal"])
             last_size = float(result.iloc[-1]["size"])
 
-            if last_signal == 0:
+            if initial_signal == 0:
                 log("No momentum signal on last bar")
                 bet_timestamps.add(target_ts)
                 time.sleep(5)
                 continue
 
-            direction = "up" if last_signal == 1 else "down"
+            initial_direction = "up" if initial_signal == 1 else "down"
+
+            # === HL GATE CHECK (with metadata recording) ===
+            hl_gate_vetoed = False
+            hl_gate_label = ""
+            if hl_gate:
+                hl_gate_vetoed, hl_gate_label = _check_hl_gate(initial_signal, hl_coin)
+                if hl_gate_vetoed:
+                    log(f"{hl_gate_label} — skip")
+                    bet_timestamps.add(target_ts)
+                    time.sleep(5)
+                    continue
+
+            # === SIGNAL RE-CONFIRMATION AT T-5s ===
+            wait_until = target_ts - _CONFIRM_SECONDS_BEFORE
+            seconds_to_wait = wait_until - int(time.time())
+            if seconds_to_wait > 0:
+                log(
+                    f"Signal {initial_direction.upper()} confirmed — re-checking at T-{_CONFIRM_SECONDS_BEFORE}s "
+                    f"(waiting {seconds_to_wait}s)"
+                )
+                time.sleep(max(0, seconds_to_wait))
+
+            now_ms2 = int(time.time() * 1000)
+            start_ms2 = now_ms2 - (bars + 3) * 5 * 60 * 1000
+            try:
+                candles2 = fetch_klines("BTCUSDT", "5m", start_ms2, now_ms2)
+                candles2 = candles2.tail(bars + 2)
+                result2 = strategy.evaluate(
+                    candles2,
+                    bars=bars,
+                    size=bet_amount,
+                    size_cap=size_cap,
+                    min_body_pct=min_body_pct,
+                    hl_gate=False,
+                )
+                final_signal = int(result2.iloc[-1]["signal"])
+                last_size = float(result2.iloc[-1]["size"])
+            except Exception as e:
+                log(f"Re-confirmation fetch error: {e} — using initial signal")
+                final_signal = initial_signal
+
+            if final_signal != initial_signal:
+                log(
+                    f"Signal reversed at T-{_CONFIRM_SECONDS_BEFORE}s "
+                    f"({initial_direction.upper()} → {'NONE' if final_signal == 0 else ('UP' if final_signal == 1 else 'DOWN')}) — skip"
+                )
+                bet_timestamps.add(target_ts)
+                time.sleep(5)
+                continue
+
+            direction = initial_direction
 
             # === GET TARGET MARKET ===
             market = client.get_market(target_ts)
@@ -250,11 +368,31 @@ def main():
                 time.sleep(5)
                 continue
 
+            # === VOLUME FLOOR ===
+            market_vol = getattr(market, "volume", 0.0) or 0.0
+            if market_vol < min_market_vol:
+                log(f"Market volume too low: ${market_vol:.0f} < ${min_market_vol:.0f} — skip")
+                bet_timestamps.add(target_ts)
+                time.sleep(5)
+                continue
+
             # Clamp size: volume-scaled (from strategy) but never exceeds bet_amount
             # and never more than 10% of bankroll
             bet_size = max(1.0, min(last_size, bet_amount, state.bankroll * 0.1))
 
-            log(f"Signal: {direction.upper()} | vol-scaled size=${last_size:.2f} -> capped=${bet_size:.2f}")
+            log(f"Signal: {direction.upper()} | vol=${market_vol:.0f} | vol-scaled size=${last_size:.2f} -> capped=${bet_size:.2f}")
+
+            # === MIN ASK-DEPTH CHECK ===
+            if min_ask_depth_mult > 0:
+                token_id = market.up_token_id if direction == "up" else market.down_token_id
+                if token_id:
+                    ask_depth = _get_ask_depth(client, token_id)
+                    required = bet_size * min_ask_depth_mult
+                    if ask_depth < required:
+                        log(f"Insufficient ask depth: ${ask_depth:.2f} < ${required:.2f} required — skip")
+                        bet_timestamps.add(target_ts)
+                        time.sleep(5)
+                        continue
 
             # === BANKROLL CHECK ===
             can_trade, reason = state.can_trade(bet_size=bet_size)
@@ -277,6 +415,12 @@ def main():
                 log("Order rejected")
                 bet_timestamps.add(target_ts)
                 continue
+
+            # === RECORD GATE METADATA ===
+            if hl_gate:
+                trade.gate_name = "hl_orderflow"
+                trade.gate_boosted = False
+                trade.gate_skipped = False
 
             state.record_trade(trade)
             bet_timestamps.add(target_ts)

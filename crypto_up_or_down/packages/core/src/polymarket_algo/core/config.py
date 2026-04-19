@@ -80,6 +80,13 @@ class Config:
     CLOB_API_SECRET: str = os.getenv("CLOB_API_SECRET", "")
     CLOB_API_PASSPHRASE: str = os.getenv("CLOB_API_PASSPHRASE", "")
 
+    # Live-readiness guards
+    MIN_MARKET_VOL: float = float(os.getenv("MIN_MARKET_VOL", "100"))
+    MIN_ASK_DEPTH_MULT: float = float(os.getenv("MIN_ASK_DEPTH_MULT", "1.5"))
+    MAX_CONSEC_LOSSES: int = int(os.getenv("MAX_CONSEC_LOSSES", "5"))
+    PAPER_FOK_CANCEL_PROB: float = float(os.getenv("PAPER_FOK_CANCEL_PROB", "0.15"))
+    PAPER_LATENCY_PENALTY_BPS: int = int(os.getenv("PAPER_LATENCY_PENALTY_BPS", "15"))
+
     # Resilience settings
     CIRCUIT_BREAKER_THRESHOLD: int = int(os.getenv("CIRCUIT_BREAKER_THRESHOLD", "5"))
     CIRCUIT_BREAKER_RECOVERY_TIME: int = int(os.getenv("CIRCUIT_BREAKER_RECOVERY_TIME", "60"))

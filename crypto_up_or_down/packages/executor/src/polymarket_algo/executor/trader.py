@@ -489,6 +489,17 @@ class TradingState:
             return False, f"Bankroll too low (${self.bankroll:.2f} < ${Config.MIN_BET:.2f})"
         if bet_size > 0 and self.bankroll < bet_size:
             return False, f"Insufficient bankroll: ${self.bankroll:.2f} < ${bet_size:.2f} bet"
+        if Config.MAX_CONSEC_LOSSES > 0:
+            cl = 0
+            for t in reversed(self.trades):
+                if t.won is None:
+                    continue
+                if not t.won:
+                    cl += 1
+                else:
+                    break
+            if cl >= Config.MAX_CONSEC_LOSSES:
+                return False, f"Max consecutive losses reached ({cl}) — cooling off until next day"
         return True, "OK"
 
     def record_trade(self, trade: Trade):
@@ -1252,10 +1263,27 @@ class PaperTrader:
             print(f"[PAPER] ❌ Order cancelled: zero fillable depth (FOK would cancel)")
             return None
 
+        # Synthetic FOK cancel: thin markets cancel more often in live
+        import random as _random
+        if 0 < market_volume < 100 and _random.random() < Config.PAPER_FOK_CANCEL_PROB:
+            print(f"[PAPER] ❌ Synthetic FOK cancel (thin market vol=${market_volume:.0f}, prob={Config.PAPER_FOK_CANCEL_PROB:.0%})")
+            return None
+
         # Execution price must be resolved at this point
         if execution_price <= 0:
             print(f"[PAPER] ❌ Order cancelled: no valid execution price resolved")
             return None
+
+        # Price-impact penalty: your own order moves the ask up in thin markets
+        filled_amount_pre = amount * (fill_pct / 100.0)
+        if market_volume > 0 and spread > 0:
+            price_impact = (filled_amount_pre / market_volume) * spread
+            if price_impact > 0:
+                execution_price = min(0.99, execution_price + price_impact)
+
+        # Live latency penalty: network + API round-trip degrades fills vs paper snapshot
+        if Config.PAPER_LATENCY_PENALTY_BPS > 0:
+            execution_price = min(0.99, execution_price * (1 + Config.PAPER_LATENCY_PENALTY_BPS / 10_000))
 
         fee_pct = self._client.calculate_fee(execution_price, fee_rate_bps)
 
