@@ -1,8 +1,9 @@
 {
   "title": "Polymarket \u2014 Crypto Up/Down",
+  "tags": ["prediction", "crypto", "trading"],
   "uid": "polymarket-crypto",
   "schemaVersion": 38,
-  "version": 1,
+  "version": 2,
   "refresh": "30s",
   "time": {
     "from": "now-30d",
@@ -99,48 +100,179 @@
   },
   "panels": [
     {
-      "id": 1,
+      "id": 11,
       "type": "row",
-      "title": "Live State",
+      "title": "Strategy Detail \u2014 $selected_strategy",
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 0,
+        "y": 9,
         "w": 24,
         "h": 1
       }
     },
     {
-      "id": 2,
-      "type": "bargauge",
-      "title": "Total PnL by Strategy (USD)",
+      "id": 20,
+      "type": "stat",
+      "title": "Trades",
       "datasource": {
         "type": "postgres",
         "uid": "timescaledb"
       },
       "gridPos": {
         "x": 0,
-        "y": 1,
-        "w": 12,
-        "h": 16
+        "y": 10,
+        "w": 4,
+        "h": 4
       },
       "options": {
-        "orientation": "horizontal",
         "reduceOptions": {
+          "values": false,
           "calcs": [
             "lastNotNull"
-          ]
+          ],
+          "fields": ""
         },
-        "displayMode": "gradient",
-        "valueMode": "color",
-        "showUnfilled": true,
-        "minVizWidth": 0,
-        "minVizHeight": 10
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "timescaledb"
+          },
+          "rawQuery": true,
+          "rawSql": "SELECT COUNT(*)::float AS value\nFROM polymarket_trades\nWHERE won IS NOT NULL\n  AND strategy = '$selected_strategy'\n  AND ('$paper' = 'all' OR paper::text = '$paper')",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "type": "stat",
+      "title": "Win %",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 4,
+        "y": 10,
+        "w": 4,
+        "h": 4
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 1,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.48
+              },
+              {
+                "color": "green",
+                "value": 0.54
+              }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "polymarket_win_rate{strategy=\"$selected_strategy\"}",
+          "legendFormat": "",
+          "instant": true,
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 22,
+      "type": "stat",
+      "title": "Total PnL",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 10,
+        "w": 4,
+        "h": 4
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
       },
       "fieldConfig": {
         "defaults": {
           "unit": "currencyUSD",
           "decimals": 2,
+          "color": {
+            "mode": "thresholds"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -157,53 +289,57 @@
                 "value": 10
               }
             ]
-          },
-          "color": {
-            "mode": "thresholds"
           }
         }
       },
       "targets": [
         {
           "datasource": {
-            "type": "postgres",
-            "uid": "timescaledb"
+            "type": "prometheus",
+            "uid": "prometheus"
           },
-          "rawSql": "SELECT strategy AS metric, SUM(pnl) AS value\nFROM polymarket_trades\nWHERE won IS NOT NULL\n  AND ('$paper' = 'all' OR paper::text = '$paper')\n  AND strategy ~ '${strategy:pipe}'\nGROUP BY strategy\nORDER BY value DESC",
-          "format": "table",
+          "expr": "polymarket_total_pnl_usd{strategy=\"$selected_strategy\"}",
+          "legendFormat": "",
+          "instant": true,
           "refId": "A"
         }
       ]
     },
     {
-      "id": 3,
-      "type": "bargauge",
-      "title": "Today's P&L by Strategy (USD)",
+      "id": 23,
+      "type": "stat",
+      "title": "Today PnL",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
       },
       "gridPos": {
         "x": 12,
-        "y": 1,
-        "w": 12,
-        "h": 16
+        "y": 10,
+        "w": 4,
+        "h": 4
       },
       "options": {
-        "orientation": "horizontal",
         "reduceOptions": {
+          "values": false,
           "calcs": [
             "lastNotNull"
-          ]
+          ],
+          "fields": ""
         },
-        "displayMode": "gradient",
-        "valueMode": "color",
-        "showUnfilled": true
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
       },
       "fieldConfig": {
         "defaults": {
           "unit": "currencyUSD",
           "decimals": 2,
+          "color": {
+            "mode": "thresholds"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -216,9 +352,6 @@
                 "value": 0
               }
             ]
-          },
-          "color": {
-            "mode": "thresholds"
           }
         }
       },
@@ -228,9 +361,506 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "polymarket_daily_pnl_usd{strategy=~\"$strategy\"}",
-          "legendFormat": "{{strategy}}",
+          "expr": "polymarket_daily_pnl_usd{strategy=\"$selected_strategy\"}",
+          "legendFormat": "",
           "instant": true,
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 24,
+      "type": "stat",
+      "title": "Avg PnL / Trade",
+      "datasource": {
+        "type": "postgres",
+        "uid": "timescaledb"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 10,
+        "w": 4,
+        "h": 4
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 3,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0
+              },
+              {
+                "color": "green",
+                "value": 0.5
+              }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "timescaledb"
+          },
+          "rawQuery": true,
+          "rawSql": "SELECT ROUND(AVG(pnl)::numeric, 3)::float AS value\nFROM polymarket_trades\nWHERE won IS NOT NULL\n  AND strategy = '$selected_strategy'\n  AND ('$paper' = 'all' OR paper::text = '$paper')",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 25,
+      "type": "stat",
+      "title": "Consec Losses",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 20,
+        "y": 10,
+        "w": 4,
+        "h": 4
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 3
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "polymarket_consecutive_losses{strategy=\"$selected_strategy\"}",
+          "legendFormat": "",
+          "instant": true,
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Equity Curve \u2014 $selected_strategy",
+      "datasource": {
+        "type": "postgres",
+        "uid": "timescaledb"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 14,
+        "w": 24,
+        "h": 14
+      },
+      "options": {
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 2,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10
+          }
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "timescaledb"
+          },
+          "rawQuery": true,
+          "rawSql": "SELECT\n  ts AS time,\n  SUM(pnl) OVER (ORDER BY ts) AS cumulative_pnl\nFROM polymarket_trades\nWHERE won IS NOT NULL\n  AND strategy = '$selected_strategy'\n  AND ('$paper' = 'all' OR paper::text = '$paper')\n  AND $__timeFilter(ts)\nORDER BY ts",
+          "format": "time_series",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 26,
+      "type": "timeseries",
+      "title": "Drawdown \u2014 $selected_strategy",
+      "datasource": {
+        "type": "postgres",
+        "uid": "timescaledb"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 28,
+        "w": 24,
+        "h": 10
+      },
+      "options": {
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 2,
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 20,
+            "fillBelowTo": "drawdown"
+          },
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "red"
+          }
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "timescaledb"
+          },
+          "rawQuery": true,
+          "rawSql": "WITH cum AS (\n  SELECT ts,\n    SUM(pnl) OVER (ORDER BY ts ROWS UNBOUNDED PRECEDING) AS cum_pnl\n  FROM polymarket_trades\n  WHERE won IS NOT NULL\n    AND strategy = '$selected_strategy'\n    AND ('$paper' = 'all' OR paper::text = '$paper')\n    AND $__timeFilter(ts)\n),\npeak AS (\n  SELECT ts, cum_pnl,\n    MAX(cum_pnl) OVER (ORDER BY ts ROWS UNBOUNDED PRECEDING) AS peak_pnl\n  FROM cum\n)\nSELECT ts AS time, cum_pnl - peak_pnl AS drawdown\nFROM peak\nORDER BY ts",
+          "format": "time_series",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 27,
+      "type": "timeseries",
+      "title": "Rolling Win Rate (20-trade window) \u2014 $selected_strategy",
+      "datasource": {
+        "type": "postgres",
+        "uid": "timescaledb"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 38,
+        "w": 24,
+        "h": 12
+      },
+      "options": {
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "decimals": 2,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 0
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "50% breakeven"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    8,
+                    4
+                  ],
+                  "fill": "dash"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "gray"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "timescaledb"
+          },
+          "rawQuery": true,
+          "rawSql": "SELECT\n  ts AS time,\n  AVG(won::int) OVER (\n    ORDER BY ts\n    ROWS BETWEEN 19 PRECEDING AND CURRENT ROW\n  ) AS rolling_win_rate\nFROM polymarket_trades\nWHERE won IS NOT NULL\n  AND strategy = '$selected_strategy'\n  AND ('$paper' = 'all' OR paper::text = '$paper')\n  AND $__timeFilter(ts)\nORDER BY ts",
+          "format": "time_series",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "timescaledb"
+          },
+          "rawQuery": true,
+          "rawSql": "SELECT ts AS time, 0.5 AS \"50% breakeven\" FROM polymarket_trades WHERE $__timeFilter(ts) ORDER BY ts LIMIT 2",
+          "format": "time_series",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 28,
+      "type": "table",
+      "title": "Trades \u2014 $selected_strategy",
+      "datasource": {
+        "type": "postgres",
+        "uid": "timescaledb"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 50,
+        "w": 24,
+        "h": 20
+      },
+      "options": {
+        "sortBy": [
+          {
+            "displayName": "Time",
+            "desc": true
+          }
+        ],
+        "footer": {
+          "show": false
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 2
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "W/L"
+            },
+            "properties": [
+              {
+                "id": "custom.displayMode",
+                "value": "color-background"
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "W": {
+                        "text": "W",
+                        "color": "green",
+                        "index": 0
+                      }
+                    }
+                  },
+                  {
+                    "type": "value",
+                    "options": {
+                      "L": {
+                        "text": "L",
+                        "color": "red",
+                        "index": 1
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Net PnL"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyUSD"
+              },
+              {
+                "id": "custom.displayMode",
+                "value": "color-background"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "green",
+                      "value": 0
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Cum PnL"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyUSD"
+              },
+              {
+                "id": "custom.displayMode",
+                "value": "color-background"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "green",
+                      "value": 0
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Fill"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 3
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Size"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyUSD"
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "timescaledb"
+          },
+          "rawQuery": true,
+          "rawSql": "SELECT\n  ts AS \"Time\",\n  direction AS \"Dir\",\n  ROUND(entry_price::numeric, 3) AS \"Fill\",\n  ROUND(pnl::numeric, 2) AS \"Net PnL\",\n  ROUND(SUM(pnl) OVER (ORDER BY ts ROWS UNBOUNDED PRECEDING)::numeric, 2) AS \"Cum PnL\",\n  CASE WHEN won THEN 'W' ELSE 'L' END AS \"W/L\",\n  ROUND(amount::numeric, 2) AS \"Size\"\nFROM polymarket_trades\nWHERE won IS NOT NULL\n  AND strategy = '$selected_strategy'\n  AND ('$paper' = 'all' OR paper::text = '$paper')\nORDER BY ts DESC\nLIMIT 100",
+          "format": "table",
           "refId": "A"
         }
       ]
@@ -242,7 +872,7 @@
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 17,
+        "y": 0,
         "w": 24,
         "h": 1
       }
@@ -257,9 +887,9 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 18,
+        "y": 1,
         "w": 24,
-        "h": 16
+        "h": 8
       },
       "options": {
         "sortBy": [
@@ -383,6 +1013,62 @@
                 "value": "short"
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Sharpe"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 1
+                    },
+                    {
+                      "color": "green",
+                      "value": 2
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.displayMode",
+                "value": "color-text"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Last Trade"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "string"
+              },
+              {
+                "id": "custom.width",
+                "value": 110
+              }
+            ]
           }
         ]
       },
@@ -393,211 +1079,9 @@
             "uid": "timescaledb"
           },
           "rawQuery": true,
-          "rawSql": "SELECT\n  strategy AS \"Strategy\",\n  asset AS \"Asset\",\n  COUNT(*) AS \"Trades\",\n  ROUND(AVG(won::int)*100, 1)::float AS \"Win %\",\n  ROUND(SUM(pnl)::numeric, 2)::float AS \"Total P&L\",\n  ROUND(AVG(pnl)::numeric, 3)::float AS \"Avg P&L\"\nFROM polymarket_trades\nWHERE won IS NOT NULL\n  AND ('$paper' = 'all' OR paper::text = '$paper')\n  AND strategy ~ '${strategy:pipe}'\n  AND $__timeFilter(ts)\nGROUP BY strategy, asset\nORDER BY \"Total P&L\" DESC",
+          "rawSql": "SELECT\n  strategy AS \"Strategy\",\n  asset AS \"Asset\",\n  COUNT(*) AS \"Trades\",\n  ROUND(AVG(won::int)*100, 1)::float AS \"Win %\",\n  ROUND(SUM(pnl)::numeric, 2)::float AS \"Total P&L\",\n  ROUND(AVG(pnl)::numeric, 3)::float AS \"Avg P&L\",\n  CASE WHEN STDDEV(pnl) = 0 OR STDDEV(pnl) IS NULL THEN NULL\n       ELSE ROUND((AVG(pnl) / STDDEV(pnl) * SQRT(COUNT(*)))::numeric, 2)::float\n  END AS \"Sharpe\",\n  CASE\n    WHEN EXTRACT(EPOCH FROM (NOW() - MAX(ts))) < 3600\n      THEN ROUND(EXTRACT(EPOCH FROM (NOW() - MAX(ts)))/60)::text || 'm ago'\n    WHEN EXTRACT(EPOCH FROM (NOW() - MAX(ts))) < 86400\n      THEN ROUND(EXTRACT(EPOCH FROM (NOW() - MAX(ts)))/3600, 1)::text || 'h ago'\n    ELSE ROUND(EXTRACT(EPOCH FROM (NOW() - MAX(ts)))/86400, 1)::text || 'd ago'\n  END AS \"Last Trade\"\nFROM polymarket_trades\nWHERE won IS NOT NULL\n  AND ('$paper' = 'all' OR paper::text = '$paper')\n  AND strategy ~ '${strategy:pipe}'\n  AND $__timeFilter(ts)\nGROUP BY strategy, asset\nORDER BY \"Total P&L\" DESC",
           "format": "table",
           "refId": "A"
-        }
-      ]
-    },
-    {
-      "id": 11,
-      "type": "row",
-      "title": "Strategy Detail \u2014 $selected_strategy",
-      "collapsed": true,
-      "gridPos": {
-        "x": 0,
-        "y": 34,
-        "w": 24,
-        "h": 1
-      },
-      "panels": [
-        {
-          "id": 12,
-          "type": "timeseries",
-          "title": "Cumulative P&L \u2014 $selected_strategy",
-          "datasource": {
-            "type": "postgres",
-            "uid": "timescaledb"
-          },
-          "gridPos": {
-            "x": 0,
-            "y": 35,
-            "w": 24,
-            "h": 14
-          },
-          "options": {
-            "tooltip": {
-              "mode": "single",
-              "sort": "none"
-            },
-            "legend": {
-              "displayMode": "list",
-              "placement": "bottom"
-            }
-          },
-          "fieldConfig": {
-            "defaults": {
-              "unit": "currencyUSD",
-              "decimals": 2,
-              "custom": {
-                "lineWidth": 2,
-                "fillOpacity": 10
-              }
-            }
-          },
-          "targets": [
-            {
-              "datasource": {
-                "type": "postgres",
-                "uid": "timescaledb"
-              },
-              "rawQuery": true,
-              "rawSql": "SELECT\n  ts AS time,\n  SUM(pnl) OVER (ORDER BY ts) AS cumulative_pnl\nFROM polymarket_trades\nWHERE won IS NOT NULL\n  AND strategy = '$selected_strategy'\n  AND ('$paper' = 'all' OR paper::text = '$paper')\n  AND $__timeFilter(ts)\nORDER BY ts",
-              "format": "time_series",
-              "refId": "A"
-            }
-          ]
-        },
-        {
-          "id": 13,
-          "type": "table",
-          "title": "Stats \u2014 $selected_strategy",
-          "datasource": {
-            "type": "postgres",
-            "uid": "timescaledb"
-          },
-          "gridPos": {
-            "x": 0,
-            "y": 49,
-            "w": 24,
-            "h": 6
-          },
-          "options": {
-            "sortBy": []
-          },
-          "fieldConfig": {
-            "defaults": {
-              "decimals": 2
-            },
-            "overrides": [
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "Total P&L"
-                },
-                "properties": [
-                  {
-                    "id": "unit",
-                    "value": "currencyUSD"
-                  },
-                  {
-                    "id": "custom.displayMode",
-                    "value": "color-background"
-                  },
-                  {
-                    "id": "thresholds",
-                    "value": {
-                      "mode": "absolute",
-                      "steps": [
-                        {
-                          "color": "red",
-                          "value": null
-                        },
-                        {
-                          "color": "green",
-                          "value": 0
-                        }
-                      ]
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "Avg P&L"
-                },
-                "properties": [
-                  {
-                    "id": "unit",
-                    "value": "currencyUSD"
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "Best Trade"
-                },
-                "properties": [
-                  {
-                    "id": "unit",
-                    "value": "currencyUSD"
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "Worst Trade"
-                },
-                "properties": [
-                  {
-                    "id": "unit",
-                    "value": "currencyUSD"
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "Win %"
-                },
-                "properties": [
-                  {
-                    "id": "unit",
-                    "value": "percent"
-                  },
-                  {
-                    "id": "custom.displayMode",
-                    "value": "color-background"
-                  },
-                  {
-                    "id": "thresholds",
-                    "value": {
-                      "mode": "absolute",
-                      "steps": [
-                        {
-                          "color": "red",
-                          "value": null
-                        },
-                        {
-                          "color": "yellow",
-                          "value": 48
-                        },
-                        {
-                          "color": "green",
-                          "value": 54
-                        }
-                      ]
-                    }
-                  }
-                ]
-              }
-            ]
-          },
-          "targets": [
-            {
-              "datasource": {
-                "type": "postgres",
-                "uid": "timescaledb"
-              },
-              "rawQuery": true,
-              "rawSql": "SELECT\n  COUNT(*) AS \"Trades\",\n  ROUND(AVG(won::int)*100, 1)::float AS \"Win %\",\n  ROUND(SUM(pnl)::numeric, 2)::float AS \"Total P&L\",\n  ROUND(AVG(pnl)::numeric, 3)::float AS \"Avg P&L\",\n  ROUND(MAX(pnl)::numeric, 3)::float AS \"Best Trade\",\n  ROUND(MIN(pnl)::numeric, 3)::float AS \"Worst Trade\"\nFROM polymarket_trades\nWHERE won IS NOT NULL\n  AND strategy = '$selected_strategy'\n  AND ('$paper' = 'all' OR paper::text = '$paper')\n  AND $__timeFilter(ts)",
-              "format": "table",
-              "refId": "A"
-            }
-          ]
         }
       ]
     },
@@ -608,7 +1092,7 @@
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 35,
+        "y": 70,
         "w": 24,
         "h": 1
       }
@@ -623,7 +1107,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 36,
+        "y": 71,
         "w": 24,
         "h": 20
       },
@@ -672,7 +1156,7 @@
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 56,
+        "y": 91,
         "w": 24,
         "h": 1
       }
@@ -687,7 +1171,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 57,
+        "y": 92,
         "w": 24,
         "h": 16
       },
@@ -781,7 +1265,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 73,
+        "y": 108,
         "w": 24,
         "h": 16
       },
