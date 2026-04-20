@@ -76,7 +76,7 @@ def main():
 
     strategy = ResolutionConvergenceStrategy()
 
-    client = PolymarketClient(asset=asset, timeframe="5m")
+    client = PolymarketClient(asset=asset)
     state = TradingState.load()
     if args.bankroll:
         state.bankroll = args.bankroll
