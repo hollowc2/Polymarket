@@ -176,8 +176,8 @@
       "type": "stat",
       "title": "Win %",
       "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
+        "type": "postgres",
+        "uid": "timescaledb"
       },
       "gridPos": {
         "x": 4,
@@ -228,12 +228,12 @@
       "targets": [
         {
           "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
+            "type": "postgres",
+            "uid": "timescaledb"
           },
-          "expr": "polymarket_win_rate{strategy=\"$selected_strategy\"}",
-          "legendFormat": "",
-          "instant": true,
+          "rawQuery": true,
+          "rawSql": "SELECT AVG(won::int)::float AS value\nFROM polymarket_trades\nWHERE won IS NOT NULL\n  AND strategy = '$selected_strategy'\n  AND ('$paper' = 'all' OR paper::text = '$paper')",
+          "format": "table",
           "refId": "A"
         }
       ]
@@ -243,8 +243,8 @@
       "type": "stat",
       "title": "Total PnL",
       "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
+        "type": "postgres",
+        "uid": "timescaledb"
       },
       "gridPos": {
         "x": 8,
@@ -295,12 +295,12 @@
       "targets": [
         {
           "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
+            "type": "postgres",
+            "uid": "timescaledb"
           },
-          "expr": "polymarket_total_pnl_usd{strategy=\"$selected_strategy\"}",
-          "legendFormat": "",
-          "instant": true,
+          "rawQuery": true,
+          "rawSql": "SELECT COALESCE(SUM(pnl), 0)::float AS value\nFROM polymarket_trades\nWHERE won IS NOT NULL\n  AND strategy = '$selected_strategy'\n  AND ('$paper' = 'all' OR paper::text = '$paper')",
+          "format": "table",
           "refId": "A"
         }
       ]
