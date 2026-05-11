@@ -9,6 +9,7 @@ Use the Grafana dashboard instead of Streamlit.
 """
 
 raise SystemExit(
-    "deepanal has been retired. Open the Grafana dashboard instead and run "
+    "deepanal has been retired. Open the Grafana dashboard, then use the "
+    "`Deepanal Port` section for the detailed analysis views. Run "
     "`uv run python scripts/grafana_archive.py` to refresh the archive."
 )

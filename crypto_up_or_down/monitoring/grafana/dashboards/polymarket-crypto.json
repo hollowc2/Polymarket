@@ -3,7 +3,7 @@
   "tags": ["prediction", "crypto", "trading"],
   "uid": "polymarket-crypto",
   "schemaVersion": 38,
-  "version": 2,
+  "version": 3,
   "refresh": "30s",
   "time": {
     "from": "now-30d",
@@ -1851,6 +1851,315 @@
           "rawQuery": true,
           "rawSql": "SELECT\n  ts AS time,\n  close\nFROM polymarket_ohlcv\nWHERE ('$asset' = 'all' OR asset = '$asset')\n  AND ('$timeframe' = 'all' OR timeframe = '$timeframe')\n  AND ('$market' = 'all' OR market = '$market')\n  AND $__timeFilter(ts)\nORDER BY ts",
           "format": "time_series",
+          "refId": "A"
+        }
+      ]
+    }
+    ,
+    {
+      "id": 29,
+      "type": "row",
+      "title": "Deepanal Port",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 161,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "id": 30,
+      "type": "timeseries",
+      "title": "Price + Entries / Fills",
+      "datasource": {
+        "type": "postgres",
+        "uid": "timescaledb"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 162,
+        "w": 24,
+        "h": 14
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "min",
+            "max"
+          ]
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 2,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 0
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Entry Price"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Fill Price"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "timescaledb"
+          },
+          "rawQuery": true,
+          "rawSql": "SELECT\n  ts AS time,\n  close AS \"Close\"\nFROM polymarket_ohlcv\nWHERE ('$asset' = 'all' OR asset = '$asset')\n  AND ('$timeframe' = 'all' OR timeframe = '$timeframe')\n  AND ('$market' = 'all' OR market = '$market')\n  AND $__timeFilter(ts)\nORDER BY ts",
+          "format": "time_series",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "timescaledb"
+          },
+          "rawQuery": true,
+          "rawSql": "SELECT\n  ts AS time,\n  entry_price AS \"Entry Price\"\nFROM polymarket_trade_archive\nWHERE strategy = '$selected_strategy'\n  AND entry_price IS NOT NULL\n  AND ('$paper' = 'all' OR paper::text = '$paper')\n  AND ('$asset' = 'all' OR asset = '$asset')\n  AND ('$timeframe' = 'all' OR timeframe = '$timeframe')\n  AND $__timeFilter(ts)\nORDER BY ts",
+          "format": "time_series",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "timescaledb"
+          },
+          "rawQuery": true,
+          "rawSql": "SELECT\n  ts AS time,\n  fill_price AS \"Fill Price\"\nFROM polymarket_trade_archive\nWHERE strategy = '$selected_strategy'\n  AND fill_price IS NOT NULL\n  AND ('$paper' = 'all' OR paper::text = '$paper')\n  AND ('$asset' = 'all' OR asset = '$asset')\n  AND ('$timeframe' = 'all' OR timeframe = '$timeframe')\n  AND $__timeFilter(ts)\nORDER BY ts",
+          "format": "time_series",
+          "refId": "C"
+        }
+      ]
+    },
+    {
+      "id": 31,
+      "type": "table",
+      "title": "Time Analysis — Hourly Performance",
+      "datasource": {
+        "type": "postgres",
+        "uid": "timescaledb"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 176,
+        "w": 12,
+        "h": 12
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "Hour UTC",
+            "desc": false
+          }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "timescaledb"
+          },
+          "rawQuery": true,
+          "rawSql": "SELECT\n  hour_utc AS \"Hour UTC\",\n  COUNT(*) AS \"Trades\",\n  ROUND(AVG(CASE WHEN won THEN 1.0 ELSE 0.0 END) * 100, 1)::float AS \"Win %\",\n  ROUND(SUM(pnl)::numeric, 2)::float AS \"Total PnL\",\n  ROUND(AVG(pnl)::numeric, 3)::float AS \"Avg PnL\"\nFROM polymarket_trade_archive\nWHERE strategy = '$selected_strategy'\n  AND won IS NOT NULL\n  AND hour_utc IS NOT NULL\n  AND ('$paper' = 'all' OR paper::text = '$paper')\n  AND ('$asset' = 'all' OR asset = '$asset')\n  AND ('$timeframe' = 'all' OR timeframe = '$timeframe')\n  AND $__timeFilter(ts)\nGROUP BY hour_utc\nORDER BY hour_utc",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 32,
+      "type": "table",
+      "title": "Time Analysis — Weekday Performance",
+      "datasource": {
+        "type": "postgres",
+        "uid": "timescaledb"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 176,
+        "w": 12,
+        "h": 12
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "Day",
+            "desc": false
+          }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "timescaledb"
+          },
+          "rawQuery": true,
+          "rawSql": "SELECT\n  CASE day_of_week\n    WHEN 0 THEN 'Mon'\n    WHEN 1 THEN 'Tue'\n    WHEN 2 THEN 'Wed'\n    WHEN 3 THEN 'Thu'\n    WHEN 4 THEN 'Fri'\n    WHEN 5 THEN 'Sat'\n    WHEN 6 THEN 'Sun'\n  END AS \"Day\",\n  COUNT(*) AS \"Trades\",\n  ROUND(AVG(CASE WHEN won THEN 1.0 ELSE 0.0 END) * 100, 1)::float AS \"Win %\",\n  ROUND(SUM(pnl)::numeric, 2)::float AS \"Total PnL\",\n  ROUND(AVG(pnl)::numeric, 3)::float AS \"Avg PnL\"\nFROM polymarket_trade_archive\nWHERE strategy = '$selected_strategy'\n  AND won IS NOT NULL\n  AND day_of_week IS NOT NULL\n  AND ('$paper' = 'all' OR paper::text = '$paper')\n  AND ('$asset' = 'all' OR asset = '$asset')\n  AND ('$timeframe' = 'all' OR timeframe = '$timeframe')\n  AND $__timeFilter(ts)\nGROUP BY day_of_week\nORDER BY day_of_week",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 33,
+      "type": "table",
+      "title": "Fill Quality — Live / Paper",
+      "datasource": {
+        "type": "postgres",
+        "uid": "timescaledb"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 188,
+        "w": 12,
+        "h": 14
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "Slip%",
+            "desc": true
+          }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "timescaledb"
+          },
+          "rawQuery": true,
+          "rawSql": "SELECT\n  ts AS \"Time\",\n  COALESCE(direction, '—') AS \"Dir\",\n  ROUND(best_ask::numeric, 3) AS \"Best Ask\",\n  ROUND(entry_price::numeric, 3) AS \"Entry\",\n  ROUND(fill_price::numeric, 3) AS \"Fill\",\n  ROUND(COALESCE(slippage_pct, 0)::numeric, 4) AS \"Slip%\",\n  ROUND(COALESCE(spread, 0)::numeric, 4) AS \"Spread\",\n  ROUND(COALESCE(fill_price - best_ask, 0)::numeric, 4) AS \"Overpay vs Ask\",\n  CASE WHEN won THEN 'W' WHEN won IS FALSE THEN 'L' ELSE '?' END AS \"W/L\",\n  ROUND(pnl::numeric, 2) AS \"PnL\"\nFROM polymarket_trade_archive\nWHERE strategy = '$selected_strategy'\n  AND fill_price IS NOT NULL\n  AND best_ask IS NOT NULL\n  AND ('$paper' = 'all' OR paper::text = '$paper')\n  AND ('$asset' = 'all' OR asset = '$asset')\n  AND ('$timeframe' = 'all' OR timeframe = '$timeframe')\n  AND $__timeFilter(ts)\nORDER BY COALESCE(slippage_pct, 0) DESC, ts DESC\nLIMIT 200",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 34,
+      "type": "table",
+      "title": "Gate Attribution",
+      "datasource": {
+        "type": "postgres",
+        "uid": "timescaledb"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 188,
+        "w": 12,
+        "h": 14
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "Total PnL",
+            "desc": true
+          }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "timescaledb"
+          },
+          "rawQuery": true,
+          "rawSql": "SELECT\n  COALESCE(gate_name, 'none') AS \"Gate\",\n  CASE WHEN gate_boosted THEN 'boosted' ELSE 'base' END AS \"Mode\",\n  COUNT(*) AS \"Trades\",\n  ROUND(AVG(CASE WHEN won THEN 1.0 ELSE 0.0 END) * 100, 1)::float AS \"Win %\",\n  ROUND(SUM(pnl)::numeric, 2)::float AS \"Total PnL\",\n  ROUND(AVG(pnl)::numeric, 3)::float AS \"Avg PnL\"\nFROM polymarket_trade_archive\nWHERE strategy = '$selected_strategy'\n  AND won IS NOT NULL\n  AND gate_name IS NOT NULL\n  AND ('$paper' = 'all' OR paper::text = '$paper')\n  AND ('$asset' = 'all' OR asset = '$asset')\n  AND ('$timeframe' = 'all' OR timeframe = '$timeframe')\n  AND $__timeFilter(ts)\nGROUP BY gate_name, gate_boosted\nORDER BY \"Total PnL\" DESC",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 35,
+      "type": "table",
+      "title": "Streak Profile",
+      "datasource": {
+        "type": "postgres",
+        "uid": "timescaledb"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 202,
+        "w": 24,
+        "h": 14
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "Streak Type",
+            "desc": false
+          },
+          {
+            "displayName": "Streak Len",
+            "desc": false
+          }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "timescaledb"
+          },
+          "rawQuery": true,
+          "rawSql": "WITH wins AS (\n  SELECT\n    'after_wins' AS \"Streak Type\",\n    consecutive_wins AS \"Streak Len\",\n    COUNT(*) AS \"Trades\",\n    ROUND(AVG(CASE WHEN won THEN 1.0 ELSE 0.0 END) * 100, 1)::float AS \"Win %\",\n    ROUND(SUM(pnl)::numeric, 2)::float AS \"Total PnL\",\n    ROUND(AVG(pnl)::numeric, 3)::float AS \"Avg PnL\"\n  FROM polymarket_trade_archive\n  WHERE strategy = '$selected_strategy'\n    AND won IS NOT NULL\n    AND consecutive_wins IS NOT NULL\n    AND ('$paper' = 'all' OR paper::text = '$paper')\n    AND ('$asset' = 'all' OR asset = '$asset')\n    AND ('$timeframe' = 'all' OR timeframe = '$timeframe')\n    AND $__timeFilter(ts)\n  GROUP BY consecutive_wins\n),\nlosses AS (\n  SELECT\n    'after_losses' AS \"Streak Type\",\n    consecutive_losses AS \"Streak Len\",\n    COUNT(*) AS \"Trades\",\n    ROUND(AVG(CASE WHEN won THEN 1.0 ELSE 0.0 END) * 100, 1)::float AS \"Win %\",\n    ROUND(SUM(pnl)::numeric, 2)::float AS \"Total PnL\",\n    ROUND(AVG(pnl)::numeric, 3)::float AS \"Avg PnL\"\n  FROM polymarket_trade_archive\n  WHERE strategy = '$selected_strategy'\n    AND won IS NOT NULL\n    AND consecutive_losses IS NOT NULL\n    AND ('$paper' = 'all' OR paper::text = '$paper')\n    AND ('$asset' = 'all' OR asset = '$asset')\n    AND ('$timeframe' = 'all' OR timeframe = '$timeframe')\n    AND $__timeFilter(ts)\n  GROUP BY consecutive_losses\n)\nSELECT * FROM wins\nUNION ALL\nSELECT * FROM losses\nORDER BY \"Streak Type\", \"Streak Len\"",
+          "format": "table",
           "refId": "A"
         }
       ]

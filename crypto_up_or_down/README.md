@@ -99,7 +99,7 @@ Grafana is the centralized explorer for live state and historical trade data.
 - Archive loader: `uv run python scripts/grafana_archive.py` preserves raw history JSON and OHLCV parquet data in TimescaleDB/Postgres
 - Systemd timer: `deploy/systemd/polymarket-grafana-archive.timer` keeps the archive current every 5 minutes
 - Dashboard: `monitoring/grafana/dashboards/polymarket-crypto.json`
-- Deepanal: retired in favor of Grafana
+- Deepanal: retired; the detailed analysis views now live in Grafana's `Deepanal Port` section
 
 Grafana reads:
 
