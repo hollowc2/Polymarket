@@ -264,6 +264,8 @@ with tab_time:
     with col2:
         st.plotly_chart(charts.pnl_by_hour_chart(trades), width="stretch")
     st.plotly_chart(charts.equity_curve_chart(trades), width="stretch")
+    with st.expander("BTCUSD price over equity window"):
+        st.plotly_chart(charts.price_line_chart(ohlcv_df, trades), width="stretch")
 
 with tab_fill:
     if any(t.source == "live" for t in trades):

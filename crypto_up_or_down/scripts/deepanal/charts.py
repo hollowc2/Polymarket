@@ -430,6 +430,47 @@ def equity_curve_chart(trades: list[TradeRecord]) -> go.Figure:
     return fig
 
 
+def price_line_chart(
+    ohlcv: pd.DataFrame,
+    trades: list[TradeRecord],
+    label: str = "BTCUSD",
+) -> go.Figure:
+    """Close-price line chart over the same time span as the equity curve."""
+    eq = m.equity_curve(trades)
+    if eq.empty:
+        return _empty("No settled trades")
+    if ohlcv.empty or "close" not in ohlcv.columns:
+        return _empty(f"No {label} close data")
+
+    start = pd.Timestamp(eq.index.min())
+    end = pd.Timestamp(eq.index.max())
+    price = ohlcv["close"].loc[start:end].dropna()
+    if price.empty:
+        return _empty(f"No {label} candles in equity window")
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=price.index,
+            y=price.values,
+            name=label,
+            line={"color": "#42a5f5", "width": 1.8},
+            hovertemplate="%{x|%Y-%m-%d %H:%M UTC}<br>"
+            + f"{label}: "
+            + "$%{y:,.2f}<extra></extra>",
+        )
+    )
+    fig.update_layout(
+        template=_DARK,
+        height=300,
+        margin={"l": 50, "r": 30, "t": 30, "b": 30},
+        yaxis_title=f"{label} close",
+    )
+    fig.update_yaxes(showgrid=True, gridcolor="rgba(255,255,255,0.05)", tickprefix="$")
+    fig.update_xaxes(showgrid=False)
+    return fig
+
+
 def heatmap_hour_weekday(trades: list[TradeRecord], metric: str = "win_rate") -> go.Figure:
     """24 × 7 heatmap of win rate or avg PnL per hour/weekday cell."""
     pivot = m.hour_weekday_pivot(trades, metric)
