@@ -1,22 +1,14 @@
 #!/usr/bin/env python3
-"""Launch the deepanal strategy explorer.
+"""Deprecated deepanal launcher.
 
-Usage:
-    uv run python scripts/run_deepanal.py
-    uv run python scripts/run_deepanal.py --port 8502
+The explorer now lives in Grafana backed by:
+- Prometheus for live operational metrics
+- TimescaleDB for the durable trade archive and OHLCV history
+
+Use the Grafana dashboard instead of Streamlit.
 """
 
-import subprocess
-import sys
-from pathlib import Path
-
-app = Path(__file__).parent / "deepanal" / "app.py"
-
-cmd = ["streamlit", "run", str(app), "--server.headless", "true"]
-
-# Pass through any extra args (e.g. --port 8502) after a bare --
-extra = sys.argv[1:]
-if extra:
-    cmd += ["--"] + extra
-
-subprocess.run(cmd)
+raise SystemExit(
+    "deepanal has been retired. Open the Grafana dashboard instead and run "
+    "`uv run python scripts/grafana_archive.py` to refresh the archive."
+)

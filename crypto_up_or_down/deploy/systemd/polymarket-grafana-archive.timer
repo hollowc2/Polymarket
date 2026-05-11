@@ -1,0 +1,13 @@
+[Unit]
+Description=Run Polymarket Grafana archive every 5 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+AccuracySec=30s
+Persistent=true
+Unit=polymarket-grafana-archive.service
+
+[Install]
+WantedBy=timers.target
+

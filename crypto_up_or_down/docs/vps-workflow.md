@@ -110,6 +110,37 @@ tail -f /opt/polymarket/state/bot.log
 
 ---
 
+## Grafana Archive Timer
+
+The archive job keeps Grafana current by copying raw trade history and OHLCV
+into the database every 5 minutes.
+
+Repo files:
+
+- `deploy/systemd/polymarket-grafana-archive.service`
+- `deploy/systemd/polymarket-grafana-archive.timer`
+
+Install on the VPS:
+
+```bash
+sudo install -Dm644 /opt/polymarket/app/crypto_up_or_down/deploy/systemd/polymarket-grafana-archive.service \
+  /etc/systemd/system/polymarket-grafana-archive.service
+sudo install -Dm644 /opt/polymarket/app/crypto_up_or_down/deploy/systemd/polymarket-grafana-archive.timer \
+  /etc/systemd/system/polymarket-grafana-archive.timer
+sudo systemctl daemon-reload
+sudo systemctl enable --now polymarket-grafana-archive.timer
+```
+
+Useful checks:
+
+```bash
+systemctl status polymarket-grafana-archive.timer
+systemctl list-timers polymarket-grafana-archive.timer
+journalctl -u polymarket-grafana-archive.service -n 50 --no-pager
+```
+
+---
+
 ## Update .env Settings
 
 No rebuild needed — just update the file and recreate the container:

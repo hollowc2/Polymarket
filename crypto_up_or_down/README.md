@@ -91,6 +91,24 @@ The engine simulates Polymarket's binary mechanic: fixed ~50¢ entry, ~5% fee, b
 
 ---
 
+## Monitoring & Archive
+
+Grafana is the centralized explorer for live state and historical trade data.
+
+- Prometheus exporter: `scripts/grafana_exporter.py` exposes live bot metrics from `/opt/polymarket/state`
+- Archive loader: `uv run python scripts/grafana_archive.py` preserves raw history JSON and OHLCV parquet data in TimescaleDB/Postgres
+- Systemd timer: `deploy/systemd/polymarket-grafana-archive.timer` keeps the archive current every 5 minutes
+- Dashboard: `monitoring/grafana/dashboards/polymarket-crypto.json`
+- Deepanal: retired in favor of Grafana
+
+Grafana reads:
+
+- Prometheus for live bankroll, P&L, trade count, win rate, and recency
+- TimescaleDB/Postgres for the durable trade archive and OHLCV history
+- The raw state files remain the on-disk backup of record
+
+---
+
 ## Plugin System
 
 Strategies and indicators are auto-discovered via Python entry points or local drop-ins:

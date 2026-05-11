@@ -1,0 +1,16 @@
+[Unit]
+Description=Polymarket Grafana archive refresh
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=billy
+Group=billy
+WorkingDirectory=/opt/polymarket/app/crypto_up_or_down
+EnvironmentFile=-/opt/polymarket/app/.env
+ExecStart=/home/billy/.local/bin/uv run python scripts/grafana_archive.py --state-dir /opt/polymarket/state --data-dir /opt/polymarket/data
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+
