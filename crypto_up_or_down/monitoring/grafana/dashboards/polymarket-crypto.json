@@ -629,7 +629,24 @@
           "decimals": 2,
           "custom": {
             "lineWidth": 2,
-            "fillOpacity": 10
+            "fillOpacity": 10,
+            "gradientMode": "scheme"
+          },
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
           }
         }
       },
