@@ -472,8 +472,4 @@ You're essentially doing:
 
 options pricing vs retail traders
 
-Deribit API : turtlequant
-	
-REDACTED_DERIBIT_CLIENT_ID
-	
-REDACTED_DERIBIT_CLIENT_SECRET
+Deribit API credentials: store in VPS `.env` as `DERIBIT_CLIENT_ID` / `DERIBIT_CLIENT_SECRET` (never commit).
