@@ -18,16 +18,16 @@ services:
 
   # ------------------------------------------------------------------ #
   # Paper research bots — honest FOK simulation, no real money         #
-  # Active bots (2026-03-24):                                          #
-  #   reversal-trend-bot          — streak_reversal/eth/5m + TrendFilter(50) + min-fill=0.54 #
-  #   adx-eth-5m-bot              — streak_adx/eth/5m + SessionFilter(good hours) + min-fill=0.53 #
-  #   hl-orderflow-momo-5m-bot    — hl_orderflow_momentum/btc/5m            #
-  #   hl-orderflow-momo-15m-bot   — hl_orderflow_momentum/btc/15m           #
-  #   hl-orderflow-reversal-5m-bot — hl_orderflow_reversal/btc/5m + block 03-08h #
-  #   3barmomo-hl-5m-bot          — 3bar_momo/btc/5m + HL gate + block 16,17,20h #
-  #   3barmomo-5m-scale-bot       — 3bar_momo/btc/5m + HL pressure sizing  #
-  #   pinbar-hl-5m-bot            — pin_bar_reversal/btc/5m + HL gate      #
-  #   delta-flip-btc-5m-bot       — delta_flip/btc/5m + 1h gate + vol-confirm (re-enabled) #
+  # Active bots (2026-06-05):                                            #
+  #   streak-bot                  — streak_reversal/eth/5m baseline       #
+  #   adx-eth-5m-bot              — streak_adx/eth/5m + session filter    #
+  #   basis-15m-bot               — basis/btc/15m                           #
+  #   oi-roc-5m-bot               — oi_roc/btc/5m                           #
+  #   hl-orderflow-reversal-5m-bot — hl_orderflow_reversal/btc/5m         #
+  #   3barmomo-hl-5m-bot          — 3bar_momo/btc/5m + HL gate              #
+  #   3barmomo-5m-scale-bot       — 3bar_momo/btc/5m + HL pressure sizing   #
+  # Retired 2026-06-05: corr-break-5m/15m, pinbar-hl-5m, delta-flip-btc-5m, #
+  #   hl-orderflow-momo-5m/15m                                            #
   # ------------------------------------------------------------------ #
 
   # Config 0: streak_reversal/eth/5m — no gate, pure baseline
@@ -233,63 +233,61 @@ services:
   #     HISTORY_FILE: "/app/state/adx-eth-15m-history.json"
   #     LOG_FILE: "/app/state/adx-eth-15m-bot.log"
 
-  # hl_orderflow_momo/btc/5m — cross-asset momentum from Hyperliquid perp order flow
-  # HTF gate (4h) + 2-of-3 entry vote (5m/15m/1h) + pressure-scaled sizing
-  # Live-only strategy: evaluate() fetches current HL data; no historical backtesting.
-  hl-orderflow-momo-5m-bot:
-    <<: *bot-common
-    container_name: polymarket-hl-orderflow-momo-5m-bot
-    command:
-      - "uv"
-      - "run"
-      - "python"
-      - "scripts/bots/hl_orderflow_bot.py"
-      - "--paper"
-      - "--asset"
-      - "btc"
-      - "--timeframe"
-      - "5m"
-      - "--size"
-      - "15.0"
-      - "--max-size"
-      - "30.0"
-      - "--min-votes"
-      - "2"
-    environment:
-      PAPER_TRADE: "true"
-      ASSET: "btc"
-      TIMEFRAME: "5m"
-      TRADES_FILE: "/app/state/hl-orderflow-momo-5m-trades.json"
-      HISTORY_FILE: "/app/state/hl-orderflow-momo-5m-history.json"
-      LOG_FILE: "/app/state/hl-orderflow-momo-5m-bot.log"
+  # RETIRED 2026-06-05: hl-orderflow-momo-5m-bot — HL stack parked; strategy retired.
+  # hl-orderflow-momo-5m-bot:
+  #   <<: *bot-common
+  #   container_name: polymarket-hl-orderflow-momo-5m-bot
+  #   command:
+  #     - "uv"
+  #     - "run"
+  #     - "python"
+  #     - "scripts/bots/hl_orderflow_bot.py"
+  #     - "--paper"
+  #     - "--asset"
+  #     - "btc"
+  #     - "--timeframe"
+  #     - "5m"
+  #     - "--size"
+  #     - "15.0"
+  #     - "--max-size"
+  #     - "30.0"
+  #     - "--min-votes"
+  #     - "2"
+  #   environment:
+  #     PAPER_TRADE: "true"
+  #     ASSET: "btc"
+  #     TIMEFRAME: "5m"
+  #     TRADES_FILE: "/app/state/hl-orderflow-momo-5m-trades.json"
+  #     HISTORY_FILE: "/app/state/hl-orderflow-momo-5m-history.json"
+  #     LOG_FILE: "/app/state/hl-orderflow-momo-5m-bot.log"
 
-  # hl_orderflow_momo/btc/15m — same signal, lower-frequency entries
-  hl-orderflow-momo-15m-bot:
-    <<: *bot-common
-    container_name: polymarket-hl-orderflow-momo-15m-bot
-    command:
-      - "uv"
-      - "run"
-      - "python"
-      - "scripts/bots/hl_orderflow_bot.py"
-      - "--paper"
-      - "--asset"
-      - "btc"
-      - "--timeframe"
-      - "15m"
-      - "--size"
-      - "15.0"
-      - "--max-size"
-      - "30.0"
-      - "--min-votes"
-      - "2"
-    environment:
-      PAPER_TRADE: "true"
-      ASSET: "btc"
-      TIMEFRAME: "15m"
-      TRADES_FILE: "/app/state/hl-orderflow-momo-15m-trades.json"
-      HISTORY_FILE: "/app/state/hl-orderflow-momo-15m-history.json"
-      LOG_FILE: "/app/state/hl-orderflow-momo-15m-bot.log"
+  # RETIRED 2026-06-05: hl-orderflow-momo-15m-bot — HL stack parked; strategy retired.
+  # hl-orderflow-momo-15m-bot:
+  #   <<: *bot-common
+  #   container_name: polymarket-hl-orderflow-momo-15m-bot
+  #   command:
+  #     - "uv"
+  #     - "run"
+  #     - "python"
+  #     - "scripts/bots/hl_orderflow_bot.py"
+  #     - "--paper"
+  #     - "--asset"
+  #     - "btc"
+  #     - "--timeframe"
+  #     - "15m"
+  #     - "--size"
+  #     - "15.0"
+  #     - "--max-size"
+  #     - "30.0"
+  #     - "--min-votes"
+  #     - "2"
+  #   environment:
+  #     PAPER_TRADE: "true"
+  #     ASSET: "btc"
+  #     TIMEFRAME: "15m"
+  #     TRADES_FILE: "/app/state/hl-orderflow-momo-15m-trades.json"
+  #     HISTORY_FILE: "/app/state/hl-orderflow-momo-15m-history.json"
+  #     LOG_FILE: "/app/state/hl-orderflow-momo-15m-bot.log"
 
   # hl_orderflow_reversal/btc/5m — fade exhausted Hyperliquid perp flow (contrarian)
   # Inverted HTF gate + 3-of-3 entry vote + pressure-scaled sizing
@@ -371,61 +369,55 @@ services:
       HISTORY_FILE: "/app/state/3barmomo-5m-scale-history.json"
       LOG_FILE: "/app/state/3barmomo-5m-scale-bot.log"
 
-  # pinbar/btc/5m + HL gate — pin bar reversal gated by HL 5m flow
-  # Skips reversals when HL 5m perp flow strongly opposes the expected move
-  pinbar-hl-5m-bot:
-    <<: *bot-common
-    container_name: polymarket-pinbar-hl-5m-bot
-    command:
-      - "uv"
-      - "run"
-      - "python"
-      - "scripts/bots/pinbar_bot.py"
-      - "--paper"
-      - "--hl-gate"
-      - "--hl-coin"
-      - "BTC"
-    environment:
-      PAPER_TRADE: "true"
-      TRADES_FILE: "/app/state/pinbar-hl-5m-trades.json"
-      HISTORY_FILE: "/app/state/pinbar-hl-5m-history.json"
-      LOG_FILE: "/app/state/pinbar-hl-5m-bot.log"
+  # RETIRED 2026-06-05: pinbar-hl-5m-bot — HL-gated pin bar strategy retired.
+  # pinbar-hl-5m-bot:
+  #   <<: *bot-common
+  #   container_name: polymarket-pinbar-hl-5m-bot
+  #   command:
+  #     - "uv"
+  #     - "run"
+  #     - "python"
+  #     - "scripts/bots/pinbar_bot.py"
+  #     - "--paper"
+  #     - "--hl-gate"
+  #     - "--hl-coin"
+  #     - "BTC"
+  #   environment:
+  #     PAPER_TRADE: "true"
+  #     TRADES_FILE: "/app/state/pinbar-hl-5m-trades.json"
+  #     HISTORY_FILE: "/app/state/pinbar-hl-5m-history.json"
+  #     LOG_FILE: "/app/state/pinbar-hl-5m-bot.log"
 
-  # delta_flip/btc/5m — zero-crossing on HL cumulative delta
-  # RETIRED 2026-03-19: unacceptable max drawdown (built $207 then gave it all back).
-  # RE-ENABLED 2026-03-24 with targeted fixes:
-  #   - HTF gate: 4h → 1h (faster regime detection, less signal lag)
-  #   - Block 00h-01h UTC (30-45% WR midnight noise)
-  #   - Vol confirm: only fire when current bar volume ≥ rolling 20-bar median
-  delta-flip-btc-5m-bot:
-    <<: *bot-common
-    container_name: polymarket-delta-flip-btc-5m-bot
-    command:
-      - "uv"
-      - "run"
-      - "python"
-      - "scripts/bots/delta_flip_bot.py"
-      - "--paper"
-      - "--asset"
-      - "btc"
-      - "--timeframe"
-      - "5m"
-      - "--gate-timeframe"
-      - "1h"
-      - "--size"
-      - "15.0"
-      - "--max-size"
-      - "30.0"
-      - "--block-hours"
-      - "0,1"
-      - "--vol-confirm"
-    environment:
-      PAPER_TRADE: "true"
-      ASSET: "btc"
-      TIMEFRAME: "5m"
-      TRADES_FILE: "/app/state/delta-flip-btc-5m-trades.json"
-      HISTORY_FILE: "/app/state/delta-flip-btc-5m-history.json"
-      LOG_FILE: "/app/state/delta-flip-btc-5m-bot.log"
+  # RETIRED 2026-06-05: delta-flip-btc-5m-bot — strategy retired.
+  # delta-flip-btc-5m-bot:
+  #   <<: *bot-common
+  #   container_name: polymarket-delta-flip-btc-5m-bot
+  #   command:
+  #     - "uv"
+  #     - "run"
+  #     - "python"
+  #     - "scripts/bots/delta_flip_bot.py"
+  #     - "--paper"
+  #     - "--asset"
+  #     - "btc"
+  #     - "--timeframe"
+  #     - "5m"
+  #     - "--gate-timeframe"
+  #     - "1h"
+  #     - "--size"
+  #     - "15.0"
+  #     - "--max-size"
+  #     - "30.0"
+  #     - "--block-hours"
+  #     - "0,1"
+  #     - "--vol-confirm"
+  #   environment:
+  #     PAPER_TRADE: "true"
+  #     ASSET: "btc"
+  #     TIMEFRAME: "5m"
+  #     TRADES_FILE: "/app/state/delta-flip-btc-5m-trades.json"
+  #     HISTORY_FILE: "/app/state/delta-flip-btc-5m-history.json"
+  #     LOG_FILE: "/app/state/delta-flip-btc-5m-bot.log"
 
   # --- Copy Bot (uncomment to enable) ---
   # copy-bot:
@@ -524,47 +516,49 @@ services:
   #     HISTORY_FILE: "/app/state/rv-regime-60m-history.json"
   #     LOG_FILE: "/app/state/rv-regime-60m-bot.log"
 
-  corr-break-5m-bot:
-    <<: *bot-common
-    container_name: polymarket-corr-break-5m-bot
-    command:
-      - "uv"
-      - "run"
-      - "python"
-      - "scripts/bots/corr_break_bot.py"
-      - "--paper"
-      - "--asset"
-      - "btc"
-      - "--timeframe"
-      - "5m"
-    environment:
-      PAPER_TRADE: "true"
-      ASSET: "btc"
-      TIMEFRAME: "5m"
-      TRADES_FILE: "/app/state/corr-break-5m-trades.json"
-      HISTORY_FILE: "/app/state/corr-break-5m-history.json"
-      LOG_FILE: "/app/state/corr-break-5m-bot.log"
+  # RETIRED 2026-06-05: corr-break-5m-bot — strategy retired.
+  # corr-break-5m-bot:
+  #   <<: *bot-common
+  #   container_name: polymarket-corr-break-5m-bot
+  #   command:
+  #     - "uv"
+  #     - "run"
+  #     - "python"
+  #     - "scripts/bots/corr_break_bot.py"
+  #     - "--paper"
+  #     - "--asset"
+  #     - "btc"
+  #     - "--timeframe"
+  #     - "5m"
+  #   environment:
+  #     PAPER_TRADE: "true"
+  #     ASSET: "btc"
+  #     TIMEFRAME: "5m"
+  #     TRADES_FILE: "/app/state/corr-break-5m-trades.json"
+  #     HISTORY_FILE: "/app/state/corr-break-5m-history.json"
+  #     LOG_FILE: "/app/state/corr-break-5m-bot.log"
 
-  corr-break-15m-bot:
-    <<: *bot-common
-    container_name: polymarket-corr-break-15m-bot
-    command:
-      - "uv"
-      - "run"
-      - "python"
-      - "scripts/bots/corr_break_bot.py"
-      - "--paper"
-      - "--asset"
-      - "btc"
-      - "--timeframe"
-      - "15m"
-    environment:
-      PAPER_TRADE: "true"
-      ASSET: "btc"
-      TIMEFRAME: "15m"
-      TRADES_FILE: "/app/state/corr-break-15m-trades.json"
-      HISTORY_FILE: "/app/state/corr-break-15m-history.json"
-      LOG_FILE: "/app/state/corr-break-15m-bot.log"
+  # RETIRED 2026-06-05: corr-break-15m-bot — strategy retired.
+  # corr-break-15m-bot:
+  #   <<: *bot-common
+  #   container_name: polymarket-corr-break-15m-bot
+  #   command:
+  #     - "uv"
+  #     - "run"
+  #     - "python"
+  #     - "scripts/bots/corr_break_bot.py"
+  #     - "--paper"
+  #     - "--asset"
+  #     - "btc"
+  #     - "--timeframe"
+  #     - "15m"
+  #   environment:
+  #     PAPER_TRADE: "true"
+  #     ASSET: "btc"
+  #     TIMEFRAME: "15m"
+  #     TRADES_FILE: "/app/state/corr-break-15m-trades.json"
+  #     HISTORY_FILE: "/app/state/corr-break-15m-history.json"
+  #     LOG_FILE: "/app/state/corr-break-15m-bot.log"
 
   # RETIRED 2026-03-27: coinbase_premium_bot (5m/15m) — CPU hog, spiked to 60%+ on startup.
   # coinbase-premium-5m-bot:

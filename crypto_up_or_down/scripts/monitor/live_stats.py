@@ -31,12 +31,11 @@ from rich.text import Text  # type: ignore[import-untyped]
 BOTS = [
     {"label": "streak-bot (baseline)", "file": "trade_history_full.json"},
     {"label": "adx-eth-5m", "file": "adx-eth-5m-history.json"},
-    {"label": "hl-momo-btc-5m", "file": "hl-orderflow-momo-5m-history.json"},
-    {"label": "hl-momo-btc-15m", "file": "hl-orderflow-momo-15m-history.json"},
+    {"label": "basis-15m", "file": "basis-15m-history.json"},
+    {"label": "oi-roc-5m", "file": "oi-roc-5m-history.json"},
     {"label": "hl-reversal-btc-5m", "file": "hl-orderflow-reversal-5m-history.json"},
     {"label": "3barmomo-hl-5m", "file": "3barmomo-hl-5m-history.json"},
-    {"label": "pinbar-hl-5m", "file": "pinbar-hl-5m-history.json"},
-    {"label": "delta-flip-btc-5m", "file": "delta-flip-btc-5m-history.json"},
+    {"label": "3barmomo-5m-scale", "file": "3barmomo-5m-scale-history.json"},
 ]
 
 # TurtleQuant / SlowQuant use open/close event format, not settled trades
