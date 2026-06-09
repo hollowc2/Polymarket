@@ -32,6 +32,10 @@ import psycopg2
 import psycopg2.extras
 
 ROOT = Path(__file__).resolve().parents[1]
+_SCRIPTS_DIR = Path(__file__).resolve().parent
+if str(_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_DIR))
+from grafana_registry import retired_strategies
 STATE_DIR = Path(os.environ.get("STATE_DIR", "/opt/polymarket/state"))
 if not STATE_DIR.exists():
     STATE_DIR = ROOT / "state"
@@ -374,7 +378,11 @@ def sync_strategies(conn: psycopg2.extensions.connection, state_dir: Path) -> No
     strategies = {Path(path).name.removesuffix("-history.json") for path in history_files}
     active_strategies = active_from_docker & strategies
 
-    rows = [{"name": name, "is_active": name in active_strategies} for name in strategies]
+    retired = retired_strategies()
+    rows = [
+        {"name": name, "is_active": name in active_strategies and name not in retired}
+        for name in strategies
+    ]
     if not rows:
         return
 

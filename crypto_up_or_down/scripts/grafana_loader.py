@@ -17,6 +17,12 @@ import os
 import re
 import subprocess
 import sys
+from pathlib import Path
+
+_SCRIPTS_DIR = Path(__file__).resolve().parent
+if str(_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_DIR))
+from grafana_registry import retired_strategies
 
 import psycopg2
 import psycopg2.extras
@@ -153,8 +159,9 @@ def sync_strategies(conn, state_dir: str):
     # Only strategies that both have history files and match a running container
     active_strategies = active_from_docker & all_strategies
 
+    retired = retired_strategies()
     rows = [
-        {"name": name, "is_active": name in active_strategies}
+        {"name": name, "is_active": name in active_strategies and name not in retired}
         for name in all_strategies
     ]
     if not rows:

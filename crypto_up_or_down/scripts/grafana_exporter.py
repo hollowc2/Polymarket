@@ -23,8 +23,15 @@ import glob
 import json
 import logging
 import os
+import sys
 import time
 from http.server import HTTPServer
+from pathlib import Path
+
+_SCRIPTS_DIR = Path(__file__).resolve().parent
+if str(_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_DIR))
+from grafana_registry import retired_strategies
 
 from prometheus_client import REGISTRY, MetricsHandler
 from prometheus_client.core import GaugeMetricFamily
@@ -87,9 +94,12 @@ class PolymarketCollector:
             labels=["strategy", "paper"],
         )
 
+        retired = retired_strategies()
         pattern = os.path.join(self.state_dir, "*-trades.json")
         for path in sorted(glob.glob(pattern)):
             strategy = os.path.basename(path).replace("-trades.json", "")
+            if strategy in retired:
+                continue
             try:
                 with open(path) as f:
                     data = json.load(f)
