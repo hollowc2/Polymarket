@@ -18,16 +18,15 @@ services:
 
   # ------------------------------------------------------------------ #
   # Paper research bots — honest FOK simulation, no real money         #
-  # Active bots (2026-06-05):                                            #
+  # Active bots (2026-06-09):                                            #
   #   streak-bot                  — streak_reversal/eth/5m baseline       #
   #   adx-eth-5m-bot              — streak_adx/eth/5m + session filter    #
   #   basis-15m-bot               — basis/btc/15m                           #
-  #   oi-roc-5m-bot               — oi_roc/btc/5m                           #
-  #   hl-orderflow-reversal-5m-bot — hl_orderflow_reversal/btc/5m         #
   #   3barmomo-hl-5m-bot          — 3bar_momo/btc/5m + HL gate              #
   #   3barmomo-5m-scale-bot       — 3bar_momo/btc/5m + HL pressure sizing   #
   # Retired 2026-06-05: corr-break-5m/15m, pinbar-hl-5m, delta-flip-btc-5m, #
   #   hl-orderflow-momo-5m/15m                                            #
+  # Retired 2026-06-09: oi-roc-5m-bot, hl-orderflow-reversal-5m-bot       #
   # ------------------------------------------------------------------ #
 
   # Config 0: streak_reversal/eth/5m — no gate, pure baseline
@@ -289,39 +288,37 @@ services:
   #     HISTORY_FILE: "/app/state/hl-orderflow-momo-15m-history.json"
   #     LOG_FILE: "/app/state/hl-orderflow-momo-15m-bot.log"
 
-  # hl_orderflow_reversal/btc/5m — fade exhausted Hyperliquid perp flow (contrarian)
-  # Inverted HTF gate + 3-of-3 entry vote + pressure-scaled sizing
-  # 2026-03-24: block 03h-08h UTC (EU open chop kills reversal edge; 07h alone: n=19, 21% WR)
-  hl-orderflow-reversal-5m-bot:
-    <<: *bot-common
-    container_name: polymarket-hl-orderflow-reversal-5m-bot
-    command:
-      - "uv"
-      - "run"
-      - "python"
-      - "scripts/bots/hl_orderflow_bot.py"
-      - "--paper"
-      - "--asset"
-      - "btc"
-      - "--timeframe"
-      - "5m"
-      - "--strategy"
-      - "reversal"
-      - "--size"
-      - "15.0"
-      - "--max-size"
-      - "30.0"
-      - "--min-votes"
-      - "3"
-      - "--block-hours"
-      - "3,4,5,6,7,8"
-    environment:
-      PAPER_TRADE: "true"
-      ASSET: "btc"
-      TIMEFRAME: "5m"
-      TRADES_FILE: "/app/state/hl-orderflow-reversal-5m-trades.json"
-      HISTORY_FILE: "/app/state/hl-orderflow-reversal-5m-history.json"
-      LOG_FILE: "/app/state/hl-orderflow-reversal-5m-bot.log"
+  # RETIRED 2026-06-09: hl-orderflow-reversal-5m-bot — hl_orderflow_reversal/btc/5m.
+  # hl-orderflow-reversal-5m-bot:
+  #   <<: *bot-common
+  #   container_name: polymarket-hl-orderflow-reversal-5m-bot
+  #   command:
+  #     - "uv"
+  #     - "run"
+  #     - "python"
+  #     - "scripts/bots/hl_orderflow_bot.py"
+  #     - "--paper"
+  #     - "--asset"
+  #     - "btc"
+  #     - "--timeframe"
+  #     - "5m"
+  #     - "--strategy"
+  #     - "reversal"
+  #     - "--size"
+  #     - "15.0"
+  #     - "--max-size"
+  #     - "30.0"
+  #     - "--min-votes"
+  #     - "3"
+  #     - "--block-hours"
+  #     - "3,4,5,6,7,8"
+  #   environment:
+  #     PAPER_TRADE: "true"
+  #     ASSET: "btc"
+  #     TIMEFRAME: "5m"
+  #     TRADES_FILE: "/app/state/hl-orderflow-reversal-5m-trades.json"
+  #     HISTORY_FILE: "/app/state/hl-orderflow-reversal-5m-history.json"
+  #     LOG_FILE: "/app/state/hl-orderflow-reversal-5m-bot.log"
 
   # 3barmomo/btc/5m + HL gate — momentum bot gated by Hyperliquid 5m+15m flow
   # Only enters when HL perp flow does NOT strongly oppose the candle momentum
@@ -646,23 +643,24 @@ services:
       HISTORY_FILE: "/app/state/basis-15m-history.json"
       LOG_FILE: "/app/state/basis-15m-bot.log"
 
-  oi-roc-5m-bot:
-    <<: *bot-common
-    container_name: polymarket-oi-roc-5m-bot
-    command:
-      - "uv"
-      - "run"
-      - "python"
-      - "scripts/bots/oi_roc_bot.py"
-      - "--paper"
-      - "--asset"
-      - "btc"
-    environment:
-      PAPER_TRADE: "true"
-      ASSET: "btc"
-      TRADES_FILE: "/app/state/oi-roc-5m-trades.json"
-      HISTORY_FILE: "/app/state/oi-roc-5m-history.json"
-      LOG_FILE: "/app/state/oi-roc-5m-bot.log"
+  # RETIRED 2026-06-09: oi-roc-5m-bot — oi_roc/btc/5m.
+  # oi-roc-5m-bot:
+  #   <<: *bot-common
+  #   container_name: polymarket-oi-roc-5m-bot
+  #   command:
+  #     - "uv"
+  #     - "run"
+  #     - "python"
+  #     - "scripts/bots/oi_roc_bot.py"
+  #     - "--paper"
+  #     - "--asset"
+  #     - "btc"
+  #   environment:
+  #     PAPER_TRADE: "true"
+  #     ASSET: "btc"
+  #     TRADES_FILE: "/app/state/oi-roc-5m-trades.json"
+  #     HISTORY_FILE: "/app/state/oi-roc-5m-history.json"
+  #     LOG_FILE: "/app/state/oi-roc-5m-bot.log"
 
   # RETIRED 2026-04-03: deribit-skew-15m-bot — deribit_skew_bot/btc/15m.
   # deribit-skew-15m-bot:

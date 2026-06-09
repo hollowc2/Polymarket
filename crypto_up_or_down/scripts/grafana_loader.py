@@ -28,6 +28,7 @@ DB_USER = os.environ.get("DB_USER", "butterfly")
 DB_PASS = os.environ.get("DB_PASS", "butterfly_dev")
 
 STATE_DIR = os.environ.get("STATE_DIR", "/opt/polymarket/state")
+LOADER_LOCK_ID = 786761253
 
 _TF_RE = re.compile(r"-(5m|15m|1h|4h|1d)(?:-|$)")
 _ASSET_RE = re.compile(r"^(eth|btc)-updown", re.IGNORECASE)
@@ -167,6 +168,12 @@ def sync_strategies(conn, state_dir: str):
     conn.commit()
 
 
+def try_acquire_loader_lock(conn) -> bool:
+    with conn.cursor() as cur:
+        cur.execute("SELECT pg_try_advisory_lock(%s)", (LOADER_LOCK_ID,))
+        return bool(cur.fetchone()[0])
+
+
 def upsert_rows(conn, rows: list[dict]) -> int:
     if not rows:
         return 0
@@ -198,29 +205,40 @@ def main():
         print(f"No history files found in {args.state_dir}", file=sys.stderr)
         sys.exit(1)
 
-    all_rows: list[dict] = []
-    for path in files:
-        rows = load_history_file(path)
-        strategy = os.path.basename(path).replace("-history.json", "")
-        print(f"  {strategy}: {len(rows)} settled trades")
-        all_rows.extend(rows)
-
-    print(f"Total: {len(all_rows)} rows to upsert")
-
-    if args.dry_run:
-        print("Dry run — skipping DB write.")
-        return
-
-    conn = psycopg2.connect(
-        host=DB_HOST, port=DB_PORT, dbname=DB_NAME, user=DB_USER, password=DB_PASS
-    )
+    conn = None
     try:
+        if not args.dry_run:
+            conn = psycopg2.connect(
+                host=DB_HOST,
+                port=DB_PORT,
+                dbname=DB_NAME,
+                user=DB_USER,
+                password=DB_PASS,
+            )
+            if not try_acquire_loader_lock(conn):
+                print("Another grafana_loader run is active; skipping this tick.")
+                return
+
+        all_rows: list[dict] = []
+        for path in files:
+            rows = load_history_file(path)
+            strategy = os.path.basename(path).replace("-history.json", "")
+            print(f"  {strategy}: {len(rows)} settled trades")
+            all_rows.extend(rows)
+
+        print(f"Total: {len(all_rows)} rows to upsert")
+
+        if args.dry_run:
+            print("Dry run — skipping DB write.")
+            return
+
         ensure_strategies_table(conn)
         sync_strategies(conn, args.state_dir)
         inserted = upsert_rows(conn, all_rows)
         print(f"Upserted {inserted} rows (ON CONFLICT DO NOTHING for duplicates)")
     finally:
-        conn.close()
+        if conn is not None:
+            conn.close()
 
 
 if __name__ == "__main__":

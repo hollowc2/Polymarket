@@ -30,8 +30,6 @@ BOTS: list[dict[str, str]] = [
     {"label": "streak-bot", "file": "trade_history_full.json"},
     {"label": "adx-eth-5m", "file": "adx-eth-5m-history.json"},
     {"label": "basis-15m", "file": "basis-15m-history.json"},
-    {"label": "oi-roc-5m", "file": "oi-roc-5m-history.json"},
-    {"label": "hl-orderflow-reversal-5m", "file": "hl-orderflow-reversal-5m-history.json"},
     {"label": "3barmomo-hl-5m", "file": "3barmomo-hl-5m-history.json"},
     {"label": "3barmomo-5m-scale", "file": "3barmomo-5m-scale-history.json"},
 ]

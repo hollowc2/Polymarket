@@ -42,6 +42,7 @@ DB_PORT = int(os.environ.get("DB_PORT", os.environ.get("DATABASE_PORT", "5432"))
 DB_NAME = os.environ.get("DB_NAME", os.environ.get("DATABASE_NAME", "butterfly_guy"))
 DB_USER = os.environ.get("DB_USER", os.environ.get("DATABASE_USER", "butterfly"))
 DB_PASS = os.environ.get("DB_PASS", os.environ.get("DATABASE_PASSWORD", "butterfly_dev"))
+ARCHIVE_LOCK_ID = 786761254
 
 _TF_RE = re.compile(r"-(5m|15m|1h|4h|1d)(?:-|$)")
 _ASSET_RE = re.compile(r"^(eth|btc)-updown", re.IGNORECASE)
@@ -390,6 +391,12 @@ def sync_strategies(conn: psycopg2.extensions.connection, state_dir: Path) -> No
     conn.commit()
 
 
+def try_acquire_archive_lock(conn: psycopg2.extensions.connection) -> bool:
+    with conn.cursor() as cur:
+        cur.execute("SELECT pg_try_advisory_lock(%s)", (ARCHIVE_LOCK_ID,))
+        return bool(cur.fetchone()[0])
+
+
 def _upsert_rows(
     conn: psycopg2.extensions.connection,
     sql: str,
@@ -455,6 +462,69 @@ def upsert_archive_rows(conn: psycopg2.extensions.connection, rows: list[dict[st
             settlement_status = EXCLUDED.settlement_status,
             raw_json = EXCLUDED.raw_json,
             source_file = EXCLUDED.source_file
+        WHERE (
+            polymarket_trade_archive.strategy,
+            polymarket_trade_archive.asset,
+            polymarket_trade_archive.timeframe,
+            polymarket_trade_archive.direction,
+            polymarket_trade_archive.amount,
+            polymarket_trade_archive.entry_price,
+            polymarket_trade_archive.fill_price,
+            polymarket_trade_archive.confidence,
+            polymarket_trade_archive.outcome,
+            polymarket_trade_archive.pnl,
+            polymarket_trade_archive.won,
+            polymarket_trade_archive.paper,
+            polymarket_trade_archive.market_slug,
+            polymarket_trade_archive.gate_name,
+            polymarket_trade_archive.gate_boosted,
+            polymarket_trade_archive.slippage_pct,
+            polymarket_trade_archive.spread,
+            polymarket_trade_archive.fill_pct,
+            polymarket_trade_archive.best_bid,
+            polymarket_trade_archive.best_ask,
+            polymarket_trade_archive.price_movement_pct,
+            polymarket_trade_archive.session_trade_n,
+            polymarket_trade_archive.hour_utc,
+            polymarket_trade_archive.day_of_week,
+            polymarket_trade_archive.consecutive_wins,
+            polymarket_trade_archive.consecutive_losses,
+            polymarket_trade_archive.bankroll_before,
+            polymarket_trade_archive.settlement_status,
+            polymarket_trade_archive.raw_json,
+            polymarket_trade_archive.source_file
+        ) IS DISTINCT FROM (
+            EXCLUDED.strategy,
+            EXCLUDED.asset,
+            EXCLUDED.timeframe,
+            EXCLUDED.direction,
+            EXCLUDED.amount,
+            EXCLUDED.entry_price,
+            EXCLUDED.fill_price,
+            EXCLUDED.confidence,
+            EXCLUDED.outcome,
+            EXCLUDED.pnl,
+            EXCLUDED.won,
+            EXCLUDED.paper,
+            EXCLUDED.market_slug,
+            EXCLUDED.gate_name,
+            EXCLUDED.gate_boosted,
+            EXCLUDED.slippage_pct,
+            EXCLUDED.spread,
+            EXCLUDED.fill_pct,
+            EXCLUDED.best_bid,
+            EXCLUDED.best_ask,
+            EXCLUDED.price_movement_pct,
+            EXCLUDED.session_trade_n,
+            EXCLUDED.hour_utc,
+            EXCLUDED.day_of_week,
+            EXCLUDED.consecutive_wins,
+            EXCLUDED.consecutive_losses,
+            EXCLUDED.bankroll_before,
+            EXCLUDED.settlement_status,
+            EXCLUDED.raw_json,
+            EXCLUDED.source_file
+        )
     """
     return _upsert_rows(conn, sql, rows)
 
@@ -487,6 +557,21 @@ def upsert_ohlcv_rows(conn: psycopg2.extensions.connection, rows: list[dict[str,
             close = EXCLUDED.close,
             volume = EXCLUDED.volume,
             source_file = EXCLUDED.source_file
+        WHERE (
+            polymarket_ohlcv.open,
+            polymarket_ohlcv.high,
+            polymarket_ohlcv.low,
+            polymarket_ohlcv.close,
+            polymarket_ohlcv.volume,
+            polymarket_ohlcv.source_file
+        ) IS DISTINCT FROM (
+            EXCLUDED.open,
+            EXCLUDED.high,
+            EXCLUDED.low,
+            EXCLUDED.close,
+            EXCLUDED.volume,
+            EXCLUDED.source_file
+        )
     """
     return _upsert_rows(conn, sql, rows)
 
@@ -506,31 +591,37 @@ def main() -> None:
         print(f"No history files found in {state_dir}", file=sys.stderr)
         sys.exit(1)
 
-    archive_rows: list[dict[str, Any]] = []
-    settled_rows: list[dict[str, Any]] = []
-    for path in history_files:
-        rows, settled = load_history_file(path)
-        print(f"  {path.name}: {len(rows)} archive rows, {len(settled)} settled rows")
-        archive_rows.extend(rows)
-        settled_rows.extend(settled)
-
-    ohlcv_rows = load_ohlcv_rows(data_dir)
-    print(f"  OHLCV rows: {len(ohlcv_rows)}")
-    print(f"Total archive rows: {len(archive_rows)}")
-    print(f"Total settled rows: {len(settled_rows)}")
-
-    if args.dry_run:
-        print("Dry run — skipping DB write.")
-        return
-
-    conn = psycopg2.connect(
-        host=DB_HOST,
-        port=DB_PORT,
-        dbname=DB_NAME,
-        user=DB_USER,
-        password=DB_PASS,
-    )
+    conn = None
     try:
+        if not args.dry_run:
+            conn = psycopg2.connect(
+                host=DB_HOST,
+                port=DB_PORT,
+                dbname=DB_NAME,
+                user=DB_USER,
+                password=DB_PASS,
+            )
+            if not try_acquire_archive_lock(conn):
+                print("Another grafana_archive run is active; skipping this tick.")
+                return
+
+        archive_rows: list[dict[str, Any]] = []
+        settled_rows: list[dict[str, Any]] = []
+        for path in history_files:
+            rows, settled = load_history_file(path)
+            print(f"  {path.name}: {len(rows)} archive rows, {len(settled)} settled rows")
+            archive_rows.extend(rows)
+            settled_rows.extend(settled)
+
+        ohlcv_rows = load_ohlcv_rows(data_dir)
+        print(f"  OHLCV rows: {len(ohlcv_rows)}")
+        print(f"Total archive rows: {len(archive_rows)}")
+        print(f"Total settled rows: {len(settled_rows)}")
+
+        if args.dry_run:
+            print("Dry run — skipping DB write.")
+            return
+
         ensure_schema(conn)
         sync_strategies(conn, state_dir)
         inserted_archive = upsert_archive_rows(conn, archive_rows)
@@ -540,7 +631,8 @@ def main() -> None:
         print(f"Upserted {inserted_settled} settled rows")
         print(f"Upserted {inserted_ohlcv} OHLCV rows")
     finally:
-        conn.close()
+        if conn is not None:
+            conn.close()
 
 
 if __name__ == "__main__":
