@@ -56,6 +56,7 @@ All strategies implement the `Strategy` Protocol — `evaluate(candles, **params
 | `HLOrderflowMomentum` | High-low orderflow momentum | — |
 | `HLOrderflowReversal` | High-low orderflow reversal | — |
 | `ThreeBarMomo` | Three-bar directional momentum | — |
+| `ImpulseMomentum` | BTC interval impulse confirmed by Polymarket CLOB skew | — |
 | `PinBar` | Pin bar rejection reversal | — |
 | `DeltaFlip` | CVD delta direction flip | — |
 | `CVDDivergence` | Price/volume divergence | — |
@@ -66,7 +67,7 @@ All strategies implement the `Strategy` Protocol — `evaluate(candles, **params
 
 Best confirmed gate: `TrendFilter(ema_period=50, mode="veto_with_trend")` on ETH/5m.
 
-**Currently deployed bots:** streak_reversal+trend (ETH/5m), streak_adx (ETH/5m), HL orderflow momentum/reversal (BTC/5m+15m), three-bar momentum (BTC/5m), pin bar (BTC/5m), delta flip (BTC/5m).
+**Currently deployed paper bots:** streak reversal (ETH/5m), streak ADX (ETH/5m), three-bar momentum variants (BTC/5m), spot-perp basis (BTC/15m), and impulse momentum (BTC/5m).
 
 ---
 
