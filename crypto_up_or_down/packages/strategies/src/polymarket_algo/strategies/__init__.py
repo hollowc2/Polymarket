@@ -14,6 +14,7 @@ from .gates import VolatilityGate as VolatilityGate
 from .gates import VolumeFilter as VolumeFilter
 from .hl_orderflow_momentum import HLOrderFlowMomentumStrategy as HLOrderFlowMomentumStrategy
 from .hl_orderflow_reversal import HLOrderFlowReversalStrategy as HLOrderFlowReversalStrategy
+from .impulse_momentum import ImpulseMomentumStrategy as ImpulseMomentumStrategy
 from .liquidation_cascade import LiquidationCascadeStrategy as LiquidationCascadeStrategy
 from .liquidation_cascade import LiquidationGate as LiquidationGate
 from .pin_bar import PinBarReversalStrategy as PinBarReversalStrategy

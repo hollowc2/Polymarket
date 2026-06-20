@@ -18,12 +18,13 @@ services:
 
   # ------------------------------------------------------------------ #
   # Paper research bots — honest FOK simulation, no real money         #
-  # Active bots (2026-06-09):                                            #
+  # Active bots (2026-06-20):                                            #
   #   streak-bot                  — streak_reversal/eth/5m baseline       #
   #   adx-eth-5m-bot              — streak_adx/eth/5m + session filter    #
   #   basis-15m-bot               — basis/btc/15m                           #
   #   3barmomo-hl-5m-bot          — 3bar_momo/btc/5m + HL gate              #
   #   3barmomo-5m-scale-bot       — 3bar_momo/btc/5m + HL pressure sizing   #
+  #   impulse-momentum-bot        — BTC impulse + matching CLOB skew         #
   # Retired 2026-06-05: corr-break-5m/15m, pinbar-hl-5m, delta-flip-btc-5m, #
   #   hl-orderflow-momo-5m/15m                                            #
   # Retired 2026-06-09: oi-roc-5m-bot, hl-orderflow-reversal-5m-bot       #
@@ -365,6 +366,49 @@ services:
       TRADES_FILE: "/app/state/3barmomo-5m-scale-trades.json"
       HISTORY_FILE: "/app/state/3barmomo-5m-scale-history.json"
       LOG_FILE: "/app/state/3barmomo-5m-scale-bot.log"
+
+  # impulse_momentum/btc/5m — active-market momentum near close.
+  # Advertised reference logic: >=$70 BTC move, matching 0.70+ CLOB skew,
+  # entry around 120 seconds remaining. Paper-only until soak criteria pass.
+  impulse-momentum-bot:
+    <<: *bot-common
+    container_name: polymarket-impulse-momentum-bot
+    command:
+      - "uv"
+      - "run"
+      - "python"
+      - "scripts/bots/impulse_momentum_bot.py"
+      - "--paper"
+      - "--impulse-min"
+      - "70"
+      - "--threshold"
+      - "0.70"
+      - "--entry-target-sec"
+      - "120"
+      - "--entry-tolerance-sec"
+      - "30"
+      - "--amount"
+      - "5"
+      - "--max-notional"
+      - "8"
+      - "--risk-pct"
+      - "8"
+      - "--max-spread"
+      - "0.03"
+      - "--min-ask-notional"
+      - "30"
+      - "--stop-loss-pct"
+      - "0.25"
+      - "--exit-before-sec"
+      - "20"
+    environment:
+      PAPER_TRADE: "true"
+      MAX_DAILY_BETS: "10000"  # Effectively unlimited; BTC 5m has at most 288 windows/day
+      MAX_DAILY_LOSS: "10"
+      MAX_CONSEC_LOSSES: "5"
+      TRADES_FILE: "/app/state/impulse-momentum-trades.json"
+      HISTORY_FILE: "/app/state/impulse-momentum-history.json"
+      LOG_FILE: "/app/state/impulse-momentum-bot.log"
 
   # RETIRED 2026-06-05: pinbar-hl-5m-bot — HL-gated pin bar strategy retired.
   # pinbar-hl-5m-bot:
