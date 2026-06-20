@@ -57,6 +57,14 @@ def book_snapshot(book: dict) -> BookSnapshot | None:
     )
 
 
+def portfolio_bet_size(bankroll: float, risk_pct: float, max_notional: float) -> float:
+    """Size as a percentage of AUM; max_notional <= 0 disables the dollar cap."""
+    target = bankroll * risk_pct / 100.0
+    if max_notional > 0:
+        target = min(target, max_notional)
+    return round(min(target, bankroll), 2)
+
+
 def settle_paper_exit(
     state: TradingState,
     trade: Trade,
@@ -181,9 +189,13 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(description="BTC 5m impulse-momentum paper bot")
     parser.add_argument("--paper", action="store_true", help="Paper mode (the only supported mode)")
-    parser.add_argument("--amount", type=float, default=5.0)
-    parser.add_argument("--max-notional", type=float, default=8.0)
-    parser.add_argument("--risk-pct", type=float, default=8.0)
+    parser.add_argument(
+        "--max-notional",
+        type=float,
+        default=0.0,
+        help="Optional dollar cap; 0 disables the cap",
+    )
+    parser.add_argument("--risk-pct", type=float, default=10.0, help="Percent of current bankroll per trade")
     parser.add_argument("--impulse-min", type=float, default=70.0)
     parser.add_argument("--threshold", type=float, default=0.70)
     parser.add_argument("--entry-target-sec", type=int, default=120)
@@ -219,6 +231,8 @@ def main() -> None:
         f"BTC/5m impulse>=${args.impulse_min:.0f}, CLOB threshold={args.threshold:.2f}, "
         f"entry={args.entry_target_sec}±{args.entry_tolerance_sec}s left"
     )
+    cap_label = f"${args.max_notional:.2f}" if args.max_notional > 0 else "none"
+    log(f"Portfolio sizing: {args.risk_pct:.2f}% of AUM per trade, dollar cap={cap_label}")
 
     while running:
         try:
@@ -275,7 +289,7 @@ def main() -> None:
                 frame,
                 impulse_usd_min=args.impulse_min,
                 threshold_price=args.threshold,
-                size=args.amount,
+                size=1.0,
             ).iloc[-1]
             signal_value = int(result["signal"])
             impulse = float(result["impulse_usd"])
@@ -298,11 +312,7 @@ def main() -> None:
                 time.sleep(args.poll_sec)
                 continue
 
-            bet_size = min(
-                float(result["size"]),
-                args.max_notional,
-                state.bankroll * args.risk_pct / 100.0,
-            )
+            bet_size = portfolio_bet_size(state.bankroll, args.risk_pct, args.max_notional)
             can_trade, reason = state.can_trade(bet_size=bet_size)
             if bet_size < Config.MIN_BET or not can_trade:
                 if reason != last_risk_pause_reason:

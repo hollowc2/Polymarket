@@ -4,7 +4,7 @@ from polymarket_algo.core.types import Strategy
 from polymarket_algo.executor.trader import Trade, TradingState
 from polymarket_algo.strategies.impulse_momentum import ImpulseMomentumStrategy
 
-from scripts.bots.impulse_momentum_bot import book_snapshot, settle_paper_exit
+from scripts.bots.impulse_momentum_bot import book_snapshot, portfolio_bet_size, settle_paper_exit
 
 
 def evaluate(open_price: float, close_price: float, up_ask: float, down_ask: float):
@@ -55,6 +55,16 @@ def test_book_snapshot_keeps_ask_only_outcome_for_skew_comparison() -> None:
     assert snapshot.best_bid == 0.0
     assert snapshot.best_ask == pytest.approx(0.08)
     assert snapshot.spread == pytest.approx(0.08)
+
+
+def test_portfolio_sizing_compounds_with_aum() -> None:
+    assert portfolio_bet_size(100.0, risk_pct=10.0, max_notional=0.0) == 10.0
+    assert portfolio_bet_size(125.0, risk_pct=10.0, max_notional=0.0) == 12.5
+    assert portfolio_bet_size(80.0, risk_pct=10.0, max_notional=0.0) == 8.0
+
+
+def test_portfolio_sizing_honors_optional_dollar_cap() -> None:
+    assert portfolio_bet_size(200.0, risk_pct=10.0, max_notional=15.0) == 15.0
 
 
 def test_paper_exit_realizes_bid_value() -> None:
