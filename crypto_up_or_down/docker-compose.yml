@@ -403,7 +403,7 @@ services:
       - "20"
     environment:
       PAPER_TRADE: "true"
-      MAX_DAILY_BETS: "12"
+      MAX_DAILY_BETS: "10000"  # Effectively unlimited; BTC 5m has at most 288 windows/day
       MAX_DAILY_LOSS: "10"
       MAX_CONSEC_LOSSES: "5"
       TRADES_FILE: "/app/state/impulse-momentum-trades.json"

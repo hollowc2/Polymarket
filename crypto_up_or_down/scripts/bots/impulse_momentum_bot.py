@@ -212,6 +212,7 @@ def main() -> None:
 
     traded_windows = {trade.timestamp for trade in state.trades}
     consecutive_errors = 0
+    last_risk_pause_reason: str | None = None
 
     log("PAPER ONLY — live order placement is not enabled")
     log(
@@ -235,9 +236,12 @@ def main() -> None:
 
             can_trade, reason = state.can_trade()
             if not can_trade:
-                log(f"Risk pause: {reason}")
+                if reason != last_risk_pause_reason:
+                    log(f"Risk pause: {reason}")
+                    last_risk_pause_reason = reason
                 time.sleep(args.poll_sec)
                 continue
+            last_risk_pause_reason = None
 
             market = client.get_market(window_start, use_cache=False)
             if not market or market.closed or not market.accepting_orders:
@@ -301,7 +305,9 @@ def main() -> None:
             )
             can_trade, reason = state.can_trade(bet_size=bet_size)
             if bet_size < Config.MIN_BET or not can_trade:
-                log(f"Risk skip: {reason}")
+                if reason != last_risk_pause_reason:
+                    log(f"Risk pause: {reason}")
+                    last_risk_pause_reason = reason
                 traded_windows.add(window_start)
                 time.sleep(args.poll_sec)
                 continue
