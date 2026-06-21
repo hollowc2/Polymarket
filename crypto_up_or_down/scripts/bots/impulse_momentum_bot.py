@@ -228,6 +228,7 @@ def main() -> None:
     parser.add_argument("--entry-tolerance-sec", type=int, default=30)
     parser.add_argument("--max-spread", type=float, default=0.03)
     parser.add_argument("--min-ask-notional", type=float, default=30.0)
+    parser.add_argument("--max-selected-ask", type=float, default=0.85)
     parser.add_argument("--max-quote-age-sec", type=float, default=8.0)
     parser.add_argument("--max-entry-drift", type=float, default=0.03)
     parser.add_argument("--stop-loss-pct", type=float, default=0.25)
@@ -333,17 +334,6 @@ def main() -> None:
                 continue
 
             direction = "up" if signal_value > 0 else "down"
-            selected_book = up_book if direction == "up" else down_book
-            if selected_book.spread > args.max_spread:
-                log(f"Skip spread {selected_book.spread:.3f} > {args.max_spread:.3f}")
-                consecutive_errors = 0
-                time.sleep(args.poll_sec)
-                continue
-            if selected_book.top_ask_notional < args.min_ask_notional:
-                log(f"Skip depth ${selected_book.top_ask_notional:.2f} < ${args.min_ask_notional:.2f}")
-                consecutive_errors = 0
-                time.sleep(args.poll_sec)
-                continue
 
             bet_size = portfolio_bet_size(state.bankroll, args.risk_pct, args.max_notional)
             can_trade, reason = state.can_trade(bet_size=bet_size)
@@ -352,6 +342,60 @@ def main() -> None:
                     log(f"Risk pause: {reason}")
                     last_risk_pause_reason = reason
                 traded_windows.add(window_start)
+                consecutive_errors = 0
+                time.sleep(args.poll_sec)
+                continue
+
+            quote_started = time.monotonic()
+            up_book = book_snapshot(client.get_orderbook(market.up_token_id))
+            down_book = book_snapshot(client.get_orderbook(market.down_token_id))
+            quote_age = time.monotonic() - quote_started
+            if not up_book or not down_book:
+                raise RuntimeError("fresh CLOB order book unavailable")
+            if quote_age > args.max_quote_age_sec:
+                log(f"Skip stale execution quotes: {quote_age:.1f}s > {args.max_quote_age_sec:.1f}s")
+                consecutive_errors = 0
+                time.sleep(args.poll_sec)
+                continue
+
+            interval_open, spot_price = current_impulse("BTCUSDT", window_start)
+            frame = pd.DataFrame(
+                [
+                    {
+                        "open": interval_open,
+                        "close": spot_price,
+                        "up_ask": up_book.best_ask,
+                        "down_ask": down_book.best_ask,
+                    }
+                ]
+            )
+            fresh_result = strategy.evaluate(
+                frame,
+                impulse_usd_min=args.impulse_min,
+                threshold_price=args.threshold,
+                size=1.0,
+            ).iloc[-1]
+            fresh_signal = int(fresh_result["signal"])
+            if fresh_signal != signal_value:
+                log(f"Skip changed signal: original={signal_value:+d}, fresh={fresh_signal:+d}")
+                consecutive_errors = 0
+                time.sleep(args.poll_sec)
+                continue
+
+            impulse = float(fresh_result["impulse_usd"])
+            selected_book = up_book if direction == "up" else down_book
+            if selected_book.best_ask > args.max_selected_ask:
+                log(f"Skip ask {selected_book.best_ask:.3f} > {args.max_selected_ask:.3f}")
+                consecutive_errors = 0
+                time.sleep(args.poll_sec)
+                continue
+            if selected_book.spread > args.max_spread:
+                log(f"Skip spread {selected_book.spread:.3f} > {args.max_spread:.3f}")
+                consecutive_errors = 0
+                time.sleep(args.poll_sec)
+                continue
+            if selected_book.top_ask_notional < args.min_ask_notional:
+                log(f"Skip depth ${selected_book.top_ask_notional:.2f} < ${args.min_ask_notional:.2f}")
                 consecutive_errors = 0
                 time.sleep(args.poll_sec)
                 continue

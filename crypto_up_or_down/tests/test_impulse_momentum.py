@@ -8,6 +8,7 @@ from polymarket_algo.executor.client import Market, PolymarketClient
 from polymarket_algo.executor.trader import PaperTrader, Trade, TradingState
 from polymarket_algo.strategies.impulse_momentum import ImpulseMomentumStrategy
 
+import scripts.bots.impulse_momentum_bot as impulse_bot
 from scripts.bots.impulse_momentum_bot import (
     book_snapshot,
     entry_price_allowed,
@@ -94,6 +95,110 @@ def test_sell_execution_walks_bids_and_requires_full_depth() -> None:
 def test_entry_drift_limit_is_inclusive() -> None:
     assert entry_price_allowed(0.70, 0.73, 0.03)
     assert not entry_price_allowed(0.70, 0.731, 0.03)
+
+
+def _run_rejected_entry(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    books: list[dict],
+    closes: list[float],
+) -> tuple[list[object], list[object]]:
+    window_start = 1_700_000_100
+    market = Market(
+        timestamp=window_start,
+        slug="btc-updown-5m-1700000100",
+        title="BTC Up or Down",
+        closed=False,
+        outcome=None,
+        up_token_id="up",
+        down_token_id="down",
+        up_price=0.70,
+        down_price=0.30,
+        volume=1_000,
+        accepting_orders=True,
+        taker_fee_bps=700,
+    )
+    execution_calls: list[object] = []
+    placed_bets: list[object] = []
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs) -> None:
+            self.books = iter(books)
+
+        def get_market(self, *args, **kwargs) -> Market:
+            return market
+
+        def get_orderbook(self, token_id: str) -> dict:
+            return next(self.books)
+
+        def get_execution_price(self, *args, **kwargs):
+            execution_calls.append((args, kwargs))
+            return 0.75, 0.01, 0.0, 100.0, 0.74, 0.75
+
+    class FakeTrader:
+        def place_bet(self, *args, **kwargs):
+            placed_bets.append((args, kwargs))
+            return None
+
+    state = TradingState(bankroll=100.0)
+    monkeypatch.setattr(state, "save", lambda: None)
+    close_values = iter(closes)
+    monkeypatch.setattr(impulse_bot, "PolymarketClient", FakeClient)
+    monkeypatch.setattr(impulse_bot, "PaperTrader", FakeTrader)
+    monkeypatch.setattr(impulse_bot.TradingState, "load", lambda: state)
+    monkeypatch.setattr(impulse_bot, "current_impulse", lambda *_args: (100_000.0, next(close_values)))
+    monkeypatch.setattr(impulse_bot.signal, "signal", lambda *_args: None)
+    monkeypatch.setattr(impulse_bot.time, "time", lambda: window_start + 180)
+    monkeypatch.setattr(impulse_bot.time, "monotonic", lambda: 1.0)
+    monkeypatch.setattr(impulse_bot.time, "sleep", lambda *_args: setattr(impulse_bot, "running", False))
+    monkeypatch.setattr(
+        "sys.argv",
+        ["impulse_momentum_bot.py", "--paper", "--max-selected-ask", "0.85"],
+    )
+    impulse_bot.running = True
+    impulse_bot.main()
+    return execution_calls, placed_bets
+
+
+def test_selected_ask_above_configured_ceiling_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    expensive_up = {
+        "bids": [{"price": "0.89", "size": "100"}],
+        "asks": [{"price": "0.90", "size": "100"}],
+    }
+    cheap_down = {
+        "bids": [{"price": "0.09", "size": "100"}],
+        "asks": [{"price": "0.10", "size": "100"}],
+    }
+    execution_calls, placed_bets = _run_rejected_entry(
+        monkeypatch,
+        books=[expensive_up, cheap_down, expensive_up, cheap_down],
+        closes=[100_080.0, 100_080.0],
+    )
+    assert execution_calls == []
+    assert placed_bets == []
+
+
+@pytest.mark.parametrize("fresh_close", [99_920.0, 100_000.0])
+def test_fresh_confirmation_rejects_direction_change_or_no_signal(
+    monkeypatch: pytest.MonkeyPatch,
+    fresh_close: float,
+) -> None:
+    up = {
+        "bids": [{"price": "0.71", "size": "100"}],
+        "asks": [{"price": "0.72", "size": "100"}],
+    }
+    down = {
+        "bids": [{"price": "0.27", "size": "100"}],
+        "asks": [{"price": "0.28", "size": "100"}],
+    }
+    fresh_up, fresh_down = (down, up) if fresh_close < 100_000 else (up, down)
+    execution_calls, placed_bets = _run_rejected_entry(
+        monkeypatch,
+        books=[up, down, fresh_up, fresh_down],
+        closes=[100_080.0, fresh_close],
+    )
+    assert execution_calls == []
+    assert placed_bets == []
 
 
 def test_crypto_fee_formula_uses_shares() -> None:
