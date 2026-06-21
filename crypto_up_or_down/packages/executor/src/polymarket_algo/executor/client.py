@@ -106,7 +106,7 @@ class Market:
     down_price: float
     volume: float
     accepting_orders: bool
-    taker_fee_bps: int = 1000  # Default 10% base fee
+    taker_fee_bps: int = 700  # Current crypto taker fee rate
     resolved: bool = False  # True when umaResolutionStatus == "resolved"
     condition_id: str | None = None  # Gnosis CTF conditionId (bytes32 hex) for on-chain redemption
     neg_risk: bool = False  # True if market uses the NegRisk CTF contract
@@ -230,7 +230,7 @@ class PolymarketClient:
             # Extract fee rate from market data (already in Gamma response)
             taker_fee_bps = m.get("takerBaseFee")
             if taker_fee_bps is None:
-                taker_fee_bps = 1000
+                taker_fee_bps = 700
                 # Only log once per market
                 if timestamp not in self._token_cache:
                     print(f"[polymarket] No takerBaseFee in response for {slug}, using default {taker_fee_bps} bps")
@@ -397,7 +397,7 @@ class PolymarketClient:
 
         Args:
             token_id: Token to get price for
-            side: "BUY" returns best ask, "SELL" returns best bid
+            side: "BUY" returns best bid, "SELL" returns best ask
 
         Returns None if the price cannot be determined.
         """
@@ -437,7 +437,7 @@ class PolymarketClient:
         Returns base_fee (e.g., 1000 = 10% base rate).
         Actual fee = price * (1 - price) * base_fee / 10000
         """
-        DEFAULT_FEE_BPS = 1000  # Fallback: 10% base rate (typical Polymarket fee)
+        DEFAULT_FEE_BPS = 700
         try:
             resp = self.session.get(f"{self.clob}/fee-rate", params={"token_id": token_id}, timeout=self.timeout)
             resp.raise_for_status()
@@ -451,14 +451,21 @@ class PolymarketClient:
 
     @staticmethod
     def calculate_fee(price: float, base_fee_bps: int) -> float:
-        """Calculate actual fee percentage from price and base fee.
+        """Calculate the fee as a percentage of trade notional.
 
-        Fee formula: fee = price * (1 - price) * base_fee / 10000
-        At 50¢ with base_fee=1000: 0.50 * 0.50 * 0.10 = 2.5%
+        Polymarket's absolute fee is shares * rate * price * (1 - price),
+        so dividing by notional (shares * price) leaves rate * (1 - price).
         """
         if base_fee_bps == 0:
             return 0.0
-        return price * (1 - price) * base_fee_bps / 10000
+        return (1 - price) * base_fee_bps / 10_000
+
+    @staticmethod
+    def calculate_fee_amount(shares: float, price: float, base_fee_bps: int) -> float:
+        """Calculate the absolute taker fee in USDC."""
+        if shares <= 0 or base_fee_bps <= 0:
+            return 0.0
+        return round(shares * (base_fee_bps / 10_000) * price * (1 - price), 5)
 
     # ── Limit order helpers (require py-clob-client with auth) ────────────────
 

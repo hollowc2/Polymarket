@@ -27,6 +27,12 @@ class BookSnapshot:
     top_ask_notional: float
 
 
+@dataclass(frozen=True)
+class SellExecution:
+    price: float
+    proceeds: float
+
+
 def handle_signal(_sig, _frame):
     global running
     running = False
@@ -65,6 +71,25 @@ def portfolio_bet_size(bankroll: float, risk_pct: float, max_notional: float) ->
     return round(min(target, bankroll), 2)
 
 
+def sell_execution(book: dict | None, shares: float) -> SellExecution | None:
+    """Return bid-side VWAP only when every share can fill."""
+    if shares <= 0:
+        return None
+    remaining = shares
+    proceeds = 0.0
+    for level in sorted((book or {}).get("bids") or [], key=lambda item: float(item["price"]), reverse=True):
+        size = min(remaining, float(level["size"]))
+        proceeds += size * float(level["price"])
+        remaining -= size
+        if remaining <= 1e-9:
+            return SellExecution(price=proceeds / shares, proceeds=proceeds)
+    return None
+
+
+def entry_price_allowed(decision_ask: float, execution_price: float, max_drift: float) -> bool:
+    return execution_price > 0 and execution_price - decision_ask <= max_drift + 1e-12
+
+
 def settle_paper_exit(
     state: TradingState,
     trade: Trade,
@@ -75,14 +100,14 @@ def settle_paper_exit(
     entry_price = trade.execution_price if trade.execution_price > 0 else trade.entry_price
     shares = trade.amount / entry_price if entry_price > 0 else 0.0
     gross_payout = shares * exit_price
-    exit_fee_pct = PolymarketClient.calculate_fee(exit_price, trade.fee_rate_bps)
-    exit_fee = gross_payout * exit_fee_pct
-    pnl = gross_payout - exit_fee - trade.amount
+    entry_fee = PolymarketClient.calculate_fee_amount(shares, entry_price, trade.fee_rate_bps)
+    exit_fee = PolymarketClient.calculate_fee_amount(shares, exit_price, trade.fee_rate_bps)
+    pnl = gross_payout - trade.amount - entry_fee - exit_fee
 
     trade.shares_bought = shares
     trade.gross_payout = gross_payout
     trade.gross_profit = gross_payout - trade.amount
-    trade.fee_amount += exit_fee
+    trade.fee_amount = entry_fee + exit_fee
     trade.net_profit = pnl
     trade.pnl = pnl
     trade.won = pnl > 0
@@ -134,19 +159,20 @@ def monitor_pending(
 
         seconds_left = trade.timestamp + 300 - time.time()
         exit_reason = ""
-        bid = client.get_price(token_id, "SELL")
-        if bid is None:
-            continue
         entry_price = trade.execution_price if trade.execution_price > 0 else trade.entry_price
-        if bid <= entry_price * (1.0 - stop_loss_pct):
+        shares = trade.shares_bought or (trade.amount / entry_price if entry_price > 0 else 0.0)
+        execution = sell_execution(client.get_orderbook(token_id), shares)
+        if execution is None:
+            continue
+        if execution.price <= entry_price * (1.0 - stop_loss_pct):
             exit_reason = f"stop_loss_{stop_loss_pct:.0%}"
         elif seconds_left <= exit_before_sec and seconds_left > 0:
             exit_reason = f"time_exit_{exit_before_sec}s"
 
         if exit_reason:
-            settle_paper_exit(state, trade, bid, exit_reason)
+            settle_paper_exit(state, trade, execution.price, exit_reason)
             log(
-                f"Paper exit {trade.direction.upper()} @ {bid:.3f} ({exit_reason}): "
+                f"Paper exit {trade.direction.upper()} @ {execution.price:.3f} ({exit_reason}): "
                 f"${trade.pnl:+.2f} | bankroll=${state.bankroll:.2f}"
             )
             state.save()
@@ -203,6 +229,7 @@ def main() -> None:
     parser.add_argument("--max-spread", type=float, default=0.03)
     parser.add_argument("--min-ask-notional", type=float, default=30.0)
     parser.add_argument("--max-quote-age-sec", type=float, default=8.0)
+    parser.add_argument("--max-entry-drift", type=float, default=0.03)
     parser.add_argument("--stop-loss-pct", type=float, default=0.25)
     parser.add_argument("--exit-before-sec", type=int, default=20)
     parser.add_argument("--poll-sec", type=float, default=5.0)
@@ -245,6 +272,7 @@ def main() -> None:
             latest = args.entry_target_sec + args.entry_tolerance_sec
 
             if window_start in traded_windows or not (earliest <= seconds_left <= latest):
+                consecutive_errors = 0
                 time.sleep(args.poll_sec)
                 continue
 
@@ -253,6 +281,7 @@ def main() -> None:
                 if reason != last_risk_pause_reason:
                     log(f"Risk pause: {reason}")
                     last_risk_pause_reason = reason
+                consecutive_errors = 0
                 time.sleep(args.poll_sec)
                 continue
             last_risk_pause_reason = None
@@ -271,6 +300,7 @@ def main() -> None:
                 raise RuntimeError("CLOB order book unavailable")
             if quote_age > args.max_quote_age_sec:
                 log(f"Skip stale quote cycle: {quote_age:.1f}s > {args.max_quote_age_sec:.1f}s")
+                consecutive_errors = 0
                 time.sleep(args.poll_sec)
                 continue
 
@@ -298,6 +328,7 @@ def main() -> None:
                     f"No entry: impulse=${impulse:+.2f}, "
                     f"UP ask={up_book.best_ask:.3f}, DOWN ask={down_book.best_ask:.3f}"
                 )
+                consecutive_errors = 0
                 time.sleep(args.poll_sec)
                 continue
 
@@ -305,10 +336,12 @@ def main() -> None:
             selected_book = up_book if direction == "up" else down_book
             if selected_book.spread > args.max_spread:
                 log(f"Skip spread {selected_book.spread:.3f} > {args.max_spread:.3f}")
+                consecutive_errors = 0
                 time.sleep(args.poll_sec)
                 continue
             if selected_book.top_ask_notional < args.min_ask_notional:
                 log(f"Skip depth ${selected_book.top_ask_notional:.2f} < ${args.min_ask_notional:.2f}")
+                consecutive_errors = 0
                 time.sleep(args.poll_sec)
                 continue
 
@@ -319,6 +352,25 @@ def main() -> None:
                     log(f"Risk pause: {reason}")
                     last_risk_pause_reason = reason
                 traded_windows.add(window_start)
+                consecutive_errors = 0
+                time.sleep(args.poll_sec)
+                continue
+
+            token_id = market.up_token_id if direction == "up" else market.down_token_id
+            execution_price, spread, slippage_pct, fill_pct, _, _ = client.get_execution_price(
+                token_id, "BUY", bet_size
+            )
+            if fill_pct < 100.0:
+                log(f"Paper FOK rejected: only {fill_pct:.1f}% of ${bet_size:.2f} fillable")
+                consecutive_errors = 0
+                time.sleep(args.poll_sec)
+                continue
+            if not entry_price_allowed(selected_book.best_ask, execution_price, args.max_entry_drift):
+                log(
+                    f"Skip entry drift: decision={selected_book.best_ask:.3f}, "
+                    f"execution={execution_price:.3f}, limit=+{args.max_entry_drift:.3f}"
+                )
+                consecutive_errors = 0
                 time.sleep(args.poll_sec)
                 continue
 
@@ -335,9 +387,18 @@ def main() -> None:
                 streak_length=0,
                 strategy="impulse_momentum",
                 gate_name="btc_impulse_clob_skew",
+                precomputed_execution={
+                    "execution_price": execution_price,
+                    "spread": spread,
+                    "slippage_pct": slippage_pct,
+                    "fill_pct": fill_pct,
+                    "best_bid": selected_book.best_bid,
+                    "best_ask": selected_book.best_ask,
+                },
             )
             if trade is None:
                 log("Paper order rejected")
+                consecutive_errors = 0
                 time.sleep(args.poll_sec)
                 continue
 

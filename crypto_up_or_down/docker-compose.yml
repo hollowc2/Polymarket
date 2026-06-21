@@ -395,6 +395,8 @@ services:
       - "0.03"
       - "--min-ask-notional"
       - "30"
+      - "--max-entry-drift"
+      - "0.03"
       - "--stop-loss-pct"
       - "0.25"
       - "--exit-before-sec"
@@ -838,7 +840,7 @@ services:
       - "9099"
     environment: {}
     ports:
-      - "9099:9099"
+      - "127.0.0.1:9099:9099"
 
   # Grafana is already running on this host (port 3000).
   # Add the Infinity datasource + import monitoring/grafana/provisioning/dashboards/polymarket.json

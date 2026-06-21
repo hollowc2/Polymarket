@@ -222,8 +222,7 @@ class Trade:
             "fee_amount": self.fee_amount,
             "net_profit": self.net_profit,
         }
-        # Add force_exit_reason if applicable
-        if self.settlement_status == "force_exit":
+        if self.force_exit_reason:
             settlement["force_exit_reason"] = self.force_exit_reason
 
         # === CONTEXT ===
@@ -491,9 +490,12 @@ class TradingState:
             return False, f"Insufficient bankroll: ${self.bankroll:.2f} < ${bet_size:.2f} bet"
         if Config.MAX_CONSEC_LOSSES > 0:
             cl = 0
+            today = datetime.now(UTC).date()
             for t in reversed(self.trades):
-                if t.won is None:
+                if t.won is None or t.settled_at is None:
                     continue
+                if datetime.fromtimestamp(t.settled_at / 1000, tz=UTC).date() != today:
+                    break
                 if not t.won:
                     cl += 1
                 else:
@@ -561,19 +563,20 @@ class TradingState:
             trade.gross_payout = trade.shares_bought  # $1 per share on win
             trade.gross_profit = trade.gross_payout - trade.amount
 
-            # Apply fee to the profit (fee is on proceeds, not principal)
-            fee_pct = trade.fee_pct if trade.fee_pct > 0 else 0.0
-            trade.fee_amount = trade.gross_profit * fee_pct if trade.gross_profit > 0 else 0.0
-
+            trade.fee_amount = PolymarketClient.calculate_fee_amount(
+                trade.shares_bought, exec_price, trade.fee_rate_bps
+            )
             trade.net_profit = trade.gross_profit - trade.fee_amount
             trade.pnl = trade.net_profit
         else:
             # Loss: lose the entire amount
             trade.gross_payout = 0.0
             trade.gross_profit = -trade.amount
-            trade.fee_amount = 0.0  # No fee on losses
-            trade.net_profit = -trade.amount
-            trade.pnl = -trade.amount
+            trade.fee_amount = PolymarketClient.calculate_fee_amount(
+                trade.shares_bought, exec_price, trade.fee_rate_bps
+            )
+            trade.net_profit = -trade.amount - trade.fee_amount
+            trade.pnl = trade.net_profit
 
         self.daily_pnl += trade.pnl
         self.bankroll += trade.pnl
@@ -709,8 +712,7 @@ class TradingState:
                     "net_profit": settled_trade.net_profit,
                 }
 
-                # Add force_exit_reason if applicable
-                if settled_trade.settlement_status == "force_exit":
+                if settled_trade.force_exit_reason:
                     history[i]["settlement"]["force_exit_reason"] = settled_trade.force_exit_reason
 
                 # Update position.shares if it was calculated during settlement
@@ -874,17 +876,17 @@ class TradingState:
                 shares = trade.amount / exec_price if exec_price > 0 else 0
 
                 # Expected value = (prob of win * win payout) + (prob of lose * lose payout)
-                # Win payout = shares - amount - fees
-                # Lose payout = -amount
+                # Win payout = shares - amount - entry fee
+                # Lose payout = -amount - entry fee
                 win_prob = current_price
                 lose_prob = 1 - current_price
 
                 gross_win = shares - trade.amount
-                fee_on_win = gross_win * trade.fee_pct if gross_win > 0 else 0
-                net_win = gross_win - fee_on_win
+                entry_fee = PolymarketClient.calculate_fee_amount(shares, exec_price, trade.fee_rate_bps)
+                net_win = gross_win - entry_fee
 
                 # Unrealized PnL = expected value
-                trade.unrealized_pnl = (win_prob * net_win) + (lose_prob * (-trade.amount))
+                trade.unrealized_pnl = (win_prob * net_win) + (lose_prob * (-trade.amount - entry_fee))
 
             except Exception as e:
                 print(f"[unrealized] Error updating {trade.market_slug}: {e}")
@@ -1040,20 +1042,19 @@ class TradingState:
             won = direction == outcome
             amount = position.get("amount", 0)
             exec_price = execution.get("fill_price") or execution.get("entry_price", 0.5)
-            fee_pct = fees.get("pct", 0)
+            fee_rate_bps = fees.get("rate_bps", 0)
 
             shares_bought = amount / exec_price if exec_price > 0 else 0
+            fee_amount = PolymarketClient.calculate_fee_amount(shares_bought, exec_price, fee_rate_bps)
 
             if won:
                 gross_payout = shares_bought  # $1 per share
                 gross_profit = gross_payout - amount
-                fee_amount = gross_profit * fee_pct if gross_profit > 0 else 0
                 net_profit = gross_profit - fee_amount
             else:
                 gross_payout = 0.0
                 gross_profit = -amount
-                fee_amount = 0.0
-                net_profit = -amount
+                net_profit = -amount - fee_amount
 
             # Update settlement in nested structure
             history[idx]["settlement"] = {
@@ -1238,51 +1239,45 @@ class PaperTrader:
                 else:
                     # Book walk returned 0 — either API failure or no depth to fill.
                     # Fall back to CLOB best ask (the cheapest live price you could hit).
-                    print(f"[PAPER] ⚠️  Orderbook walk returned no price — trying CLOB best ask fallback")
-                    ask_fallback = self._client.get_price(token_id, "BUY")
+                    print("[PAPER] ⚠️  Orderbook walk returned no price — trying CLOB best ask fallback")
+                    ask_fallback = self._client.get_price(token_id, "SELL")
                     if ask_fallback and ask_fallback > 0:
                         execution_price = ask_fallback
                         print(f"[PAPER] Using CLOB best ask: {execution_price:.4f}")
                     else:
                         # No price data at all — a live FOK order would cancel here
-                        print(f"[PAPER] ❌ Order cancelled: no price data available (FOK would cancel)")
+                        print("[PAPER] ❌ Order cancelled: no price data available (FOK would cancel)")
                         return None
             except Exception as e:
                 print(f"[PAPER] Warning: Could not fetch orderbook: {e}")
+                fill_pct = 0.0
                 # Try CLOB best ask as fallback before giving up
-                ask_fallback = self._client.get_price(token_id, "BUY") if token_id else None
+                ask_fallback = self._client.get_price(token_id, "SELL") if token_id else None
                 if ask_fallback and ask_fallback > 0:
                     execution_price = ask_fallback
                     print(f"[PAPER] Using CLOB best ask as fallback: {execution_price:.4f}")
                 else:
-                    print(f"[PAPER] ❌ Order cancelled: could not determine execution price (FOK would cancel)")
+                    print("[PAPER] ❌ Order cancelled: could not determine execution price (FOK would cancel)")
                     return None
 
-        # Simulate FOK cancel when book has zero fillable depth
-        if fill_pct == 0.0:
-            print(f"[PAPER] ❌ Order cancelled: zero fillable depth (FOK would cancel)")
-            return None
-
-        # Synthetic FOK cancel: thin markets cancel more often in live
-        import random as _random
-        if 0 < market_volume < 100 and _random.random() < Config.PAPER_FOK_CANCEL_PROB:
-            print(f"[PAPER] ❌ Synthetic FOK cancel (thin market vol=${market_volume:.0f}, prob={Config.PAPER_FOK_CANCEL_PROB:.0%})")
+        if fill_pct < 100.0:
+            print(f"[PAPER] ❌ Order cancelled: only {fill_pct:.1f}% fillable (FOK requires 100%)")
             return None
 
         # Execution price must be resolved at this point
         if execution_price <= 0:
-            print(f"[PAPER] ❌ Order cancelled: no valid execution price resolved")
+            print("[PAPER] ❌ Order cancelled: no valid execution price resolved")
             return None
 
         # Price-impact penalty: your own order moves the ask up in thin markets
         filled_amount_pre = amount * (fill_pct / 100.0)
-        if market_volume > 0 and spread > 0:
+        if not precomputed_execution and market_volume > 0 and spread > 0:
             price_impact = (filled_amount_pre / market_volume) * spread
             if price_impact > 0:
                 execution_price = min(0.99, execution_price + price_impact)
 
         # Live latency penalty: network + API round-trip degrades fills vs paper snapshot
-        if Config.PAPER_LATENCY_PENALTY_BPS > 0:
+        if not precomputed_execution and Config.PAPER_LATENCY_PENALTY_BPS > 0:
             execution_price = min(0.99, execution_price * (1 + Config.PAPER_LATENCY_PENALTY_BPS / 10_000))
 
         fee_pct = self._client.calculate_fee(execution_price, fee_rate_bps)
@@ -1292,10 +1287,9 @@ class PaperTrader:
         if price_at_signal > 0:
             price_movement_pct = ((execution_price - price_at_signal) / price_at_signal) * 100
 
-        # Adjust amount for partial fill
-        filled_amount = amount * (fill_pct / 100.0)
-        if fill_pct < 100.0:
-            print(f"[PAPER] ⚠️  Partial fill: {fill_pct:.1f}% of ${amount:.2f} = ${filled_amount:.2f}")
+        filled_amount = amount
+        shares_bought = filled_amount / execution_price
+        entry_fee = PolymarketClient.calculate_fee_amount(shares_bought, execution_price, fee_rate_bps)
 
         # === PATTERN ANALYSIS DATA ===
         # Time-based patterns
@@ -1335,6 +1329,8 @@ class PaperTrader:
             # Realistic simulation fields
             fee_rate_bps=fee_rate_bps,
             fee_pct=fee_pct,
+            fee_amount=entry_fee,
+            shares_bought=shares_bought,
             spread=spread,
             slippage_pct=slippage_pct,
             execution_price=execution_price,
@@ -1494,7 +1490,7 @@ class PaperTrader:
             if spread and spread[1] > 0:
                 _bid, current_ask = spread
             else:
-                current_ask_maybe = self._client.get_price(token_id, side="BUY")
+                current_ask_maybe = self._client.get_price(token_id, side="SELL")
                 current_ask = current_ask_maybe if current_ask_maybe else 1.0
         except Exception:
             return False
@@ -1519,6 +1515,8 @@ class PaperTrader:
             trade.order_status = "filled"
             fee_rate_bps = trade.fee_rate_bps or 200
             trade.fee_pct = self._client.calculate_fee(trade.limit_price, fee_rate_bps)
+            trade.shares_bought = trade.amount / trade.limit_price
+            trade.fee_amount = self._client.calculate_fee_amount(trade.shares_bought, trade.limit_price, fee_rate_bps)
             return True
         return False
 
@@ -1848,6 +1846,10 @@ class LiveTrader:
                 print(f"[LIVE] Fatal error (not retryable): {e}")
                 return None
 
+        shares_bought = filled_amount / execution_price if execution_price > 0 else 0.0
+        fee_pct = PolymarketClient.calculate_fee(execution_price, fee_rate_bps)
+        fee_amount = PolymarketClient.calculate_fee_amount(shares_bought, execution_price, fee_rate_bps)
+
         return Trade(
             timestamp=market.timestamp,
             market_slug=market.slug,
@@ -1863,6 +1865,8 @@ class LiveTrader:
             # Realistic execution fields
             fee_rate_bps=fee_rate_bps,
             fee_pct=fee_pct,
+            fee_amount=fee_amount,
+            shares_bought=shares_bought,
             execution_price=execution_price,
             requested_amount=amount,
             price_at_signal=entry_price,

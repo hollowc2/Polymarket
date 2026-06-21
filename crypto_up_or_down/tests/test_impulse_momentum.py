@@ -1,10 +1,20 @@
+from datetime import UTC, datetime, timedelta
+
 import pandas as pd
 import pytest
+from polymarket_algo.core.config import Config
 from polymarket_algo.core.types import Strategy
-from polymarket_algo.executor.trader import Trade, TradingState
+from polymarket_algo.executor.client import Market, PolymarketClient
+from polymarket_algo.executor.trader import PaperTrader, Trade, TradingState
 from polymarket_algo.strategies.impulse_momentum import ImpulseMomentumStrategy
 
-from scripts.bots.impulse_momentum_bot import book_snapshot, portfolio_bet_size, settle_paper_exit
+from scripts.bots.impulse_momentum_bot import (
+    book_snapshot,
+    entry_price_allowed,
+    portfolio_bet_size,
+    sell_execution,
+    settle_paper_exit,
+)
 
 
 def evaluate(open_price: float, close_price: float, up_ask: float, down_ask: float):
@@ -67,6 +77,30 @@ def test_portfolio_sizing_honors_optional_dollar_cap() -> None:
     assert portfolio_bet_size(200.0, risk_pct=10.0, max_notional=15.0) == 15.0
 
 
+def test_sell_execution_walks_bids_and_requires_full_depth() -> None:
+    book = {
+        "bids": [
+            {"price": "0.55", "size": "3"},
+            {"price": "0.60", "size": "2"},
+        ]
+    }
+    execution = sell_execution(book, 4)
+    assert execution is not None
+    assert execution.price == pytest.approx(0.575)
+    assert execution.proceeds == pytest.approx(2.30)
+    assert sell_execution(book, 6) is None
+
+
+def test_entry_drift_limit_is_inclusive() -> None:
+    assert entry_price_allowed(0.70, 0.73, 0.03)
+    assert not entry_price_allowed(0.70, 0.731, 0.03)
+
+
+def test_crypto_fee_formula_uses_shares() -> None:
+    assert PolymarketClient.calculate_fee_amount(100, 0.50, 700) == pytest.approx(1.75)
+    assert PolymarketClient.calculate_fee(0.50, 700) == pytest.approx(0.035)
+
+
 def test_paper_exit_realizes_bid_value() -> None:
     trade = Trade(
         timestamp=1_700_000_000,
@@ -78,12 +112,73 @@ def test_paper_exit_realizes_bid_value() -> None:
         streak_length=0,
         confidence=0.75,
         paper=True,
-        fee_rate_bps=0,
+        fee_rate_bps=700,
     )
     state = TradingState(trades=[trade], bankroll=100.0)
     settle_paper_exit(state, trade, exit_price=0.60, reason="stop_loss_25%")
     assert trade.settlement_status == "settled"
     assert trade.final_price == pytest.approx(0.60)
-    assert trade.pnl == pytest.approx(-1.0)
-    assert state.bankroll == pytest.approx(99.0)
-    assert state.daily_pnl == pytest.approx(-1.0)
+    assert trade.fee_amount == pytest.approx(0.1995)
+    assert trade.pnl == pytest.approx(-1.1995)
+    assert state.bankroll == pytest.approx(98.8005)
+    assert state.daily_pnl == pytest.approx(-1.1995)
+    assert trade.to_nested_json()["settlement"]["force_exit_reason"] == "stop_loss_25%"
+
+
+def test_paper_fok_rejects_partial_fill() -> None:
+    market = Market(
+        timestamp=1_700_000_000,
+        slug="btc-updown-5m-1700000000",
+        title="BTC Up or Down",
+        closed=False,
+        outcome=None,
+        up_token_id="up",
+        down_token_id="down",
+        up_price=0.70,
+        down_price=0.30,
+        volume=1_000,
+        accepting_orders=True,
+        taker_fee_bps=700,
+    )
+    trade = PaperTrader().place_bet(
+        market,
+        "up",
+        10.0,
+        0.70,
+        0,
+        precomputed_execution={
+            "execution_price": 0.71,
+            "fill_pct": 99.0,
+            "spread": 0.02,
+            "slippage_pct": 0.0,
+        },
+    )
+    assert trade is None
+
+
+def test_consecutive_loss_pause_resets_next_utc_day(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(Config, "MAX_CONSEC_LOSSES", 5)
+    now = datetime.now(UTC)
+    losses = [
+        Trade(
+            timestamp=1_700_000_000 + i,
+            market_slug=f"loss-{i}",
+            direction="up",
+            amount=5.0,
+            entry_price=0.5,
+            streak_length=0,
+            confidence=0.5,
+            paper=True,
+            won=False,
+            settled_at=int(now.timestamp() * 1000),
+        )
+        for i in range(5)
+    ]
+    allowed, _ = TradingState(trades=losses).can_trade()
+    assert not allowed
+
+    yesterday = int((now - timedelta(days=1)).timestamp() * 1000)
+    for trade in losses:
+        trade.settled_at = yesterday
+    allowed, _ = TradingState(trades=losses).can_trade()
+    assert allowed
