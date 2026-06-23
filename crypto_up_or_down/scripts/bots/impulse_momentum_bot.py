@@ -11,6 +11,7 @@ from datetime import datetime
 
 import pandas as pd
 from polymarket_algo.core.config import LOCAL_TZ, Config
+from polymarket_algo.core.discord_trades import DiscordTrades
 from polymarket_algo.data.binance import fetch_klines
 from polymarket_algo.executor.client import Market, PolymarketClient
 from polymarket_algo.executor.trader import PaperTrader, Trade, TradingState
@@ -134,9 +135,55 @@ def current_impulse(symbol: str, window_start: int) -> tuple[float, float]:
     return float(current["open"]), float(current["close"])
 
 
+def trade_chart(discord: DiscordTrades, trade: Trade, exit_ms: int | None = None) -> bytes | None:
+    entry_ms = trade.executed_at or trade.timestamp * 1000
+    end_ms = exit_ms or int(time.time() * 1000)
+    try:
+        frame = fetch_klines("BTCUSDT", "5m", end_ms - 2 * 3_600_000, end_ms)
+        return discord.chart(frame, "BTC 5m spot", entry_ms, exit_ms)
+    except Exception:
+        return None
+
+
+def notify_entry(discord: DiscordTrades, trade: Trade, impulse: float) -> None:
+    discord.send(
+        trade.market_slug,
+        (
+            f"⚡ **IMPULSE MOMENTUM ENTERED** `{trade.direction.upper()}`\n"
+            f"> Market: `{trade.market_slug}`\n"
+            f"> Fill: **{trade.execution_price:.3f}** | Bid/Ask: {trade.best_bid:.3f}/{trade.best_ask:.3f}\n"
+            f"> Size: **${trade.amount:.2f}** | Shares: {trade.shares_bought:.4f}\n"
+            f"> Impulse: ${impulse:+,.2f} | Spread: {trade.spread:.3f} | Fill: {trade.fill_pct:.0f}%\n"
+            f"> Mode: {'PAPER' if trade.paper else 'LIVE'}"
+        ),
+        trade_chart(discord, trade),
+        remember=True,
+    )
+
+
+def notify_exit(discord: DiscordTrades, trade: Trade) -> None:
+    exit_ms = trade.settled_at or int(time.time() * 1000)
+    entry_ms = trade.executed_at or trade.timestamp * 1000
+    held = (exit_ms - entry_ms) / 1000
+    pnl_pct = trade.pnl / trade.amount if trade.amount else 0.0
+    reason = trade.force_exit_reason or trade.outcome or "resolved"
+    discord.send(
+        trade.market_slug,
+        (
+            f"{'✅' if trade.pnl >= 0 else '❌'} **IMPULSE MOMENTUM EXITED** `{trade.direction.upper()}`\n"
+            f"> Market: `{trade.market_slug}`\n"
+            f"> Entry: {trade.execution_price:.3f} → Exit: **{(trade.final_price or 0):.3f}**\n"
+            f"> P&L: **${trade.pnl:+.2f}** ({pnl_pct:+.1%}) | Fees: ${trade.fee_amount:.2f}\n"
+            f"> Held: {held:.0f}s | Reason: `{reason}`"
+        ),
+        trade_chart(discord, trade, exit_ms),
+    )
+
+
 def monitor_pending(
     state: TradingState,
     client: PolymarketClient,
+    discord: DiscordTrades,
     exit_before_sec: int,
     stop_loss_pct: float,
 ) -> None:
@@ -148,6 +195,7 @@ def monitor_pending(
                 f"Resolved {trade.direction.upper()} on {market.slug}: "
                 f"${trade.pnl:+.2f} | bankroll=${state.bankroll:.2f}"
             )
+            notify_exit(discord, trade)
             state.save()
             continue
 
@@ -175,6 +223,7 @@ def monitor_pending(
                 f"Paper exit {trade.direction.upper()} @ {execution.price:.3f} ({exit_reason}): "
                 f"${trade.pnl:+.2f} | bankroll=${state.bankroll:.2f}"
             )
+            notify_exit(discord, trade)
             state.save()
 
 
@@ -246,6 +295,7 @@ def main() -> None:
     trader = PaperTrader()
     strategy = ImpulseMomentumStrategy()
     state = TradingState.load()
+    discord = DiscordTrades(Config.TRADES_FILE, "impulse_momentum")
     if args.bankroll is not None:
         state.bankroll = args.bankroll
     state.save()
@@ -264,7 +314,7 @@ def main() -> None:
 
     while running:
         try:
-            monitor_pending(state, client, args.exit_before_sec, args.stop_loss_pct)
+            monitor_pending(state, client, discord, args.exit_before_sec, args.stop_loss_pct)
 
             now = time.time()
             window_start = (int(now) // 300) * 300
@@ -462,6 +512,7 @@ def main() -> None:
                 f"Entered {direction.upper()} ${trade.amount:.2f}: impulse=${impulse:+.2f}, "
                 f"ask={selected_book.best_ask:.3f}, spread={selected_book.spread:.3f}"
             )
+            notify_entry(discord, trade, impulse)
             consecutive_errors = 0
             time.sleep(args.poll_sec)
 

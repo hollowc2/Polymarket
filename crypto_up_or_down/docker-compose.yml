@@ -373,6 +373,9 @@ services:
   impulse-momentum-bot:
     <<: *bot-common
     container_name: polymarket-impulse-momentum-bot
+    volumes:
+      - /opt/polymarket/state:/app/state
+      - /opt/monitoring/alertmanager/secrets/cryptoupdown-webhook:/run/secrets/discord-webhook:ro
     command:
       - "uv"
       - "run"
@@ -409,6 +412,7 @@ services:
       TRADES_FILE: "/app/state/impulse-momentum-trades.json"
       HISTORY_FILE: "/app/state/impulse-momentum-history.json"
       LOG_FILE: "/app/state/impulse-momentum-bot.log"
+      DISCORD_STRATEGIES: "${DISCORD_STRATEGIES:-impulse_momentum}"
 
   # RETIRED 2026-06-05: pinbar-hl-5m-bot — HL-gated pin bar strategy retired.
   # pinbar-hl-5m-bot:
