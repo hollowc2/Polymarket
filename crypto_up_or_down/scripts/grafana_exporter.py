@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ruff: noqa: I001
 """Prometheus exporter for polymarket crypto_up_or_down live state.
 
 Reads all *-trades.json files from STATE_DIR and exposes per-strategy gauges:
@@ -11,6 +12,7 @@ Reads all *-trades.json files from STATE_DIR and exposes per-strategy gauges:
   polymarket_avg_stake_usd         — mean stake per trade USD
   polymarket_last_trade_age_sec    — seconds since last trade execution
   polymarket_consecutive_losses    — consecutive losses at last trade
+  polymarket_state_read_success    — whether each strategy state file is readable
 
 Labels: strategy, paper ("true"/"false")
 
@@ -31,10 +33,10 @@ from pathlib import Path
 _SCRIPTS_DIR = Path(__file__).resolve().parent
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
-from grafana_registry import retired_strategies
+from grafana_registry import retired_strategies  # noqa: E402
 
-from prometheus_client import REGISTRY, MetricsHandler
-from prometheus_client.core import GaugeMetricFamily
+from prometheus_client import REGISTRY, MetricsHandler  # noqa: E402
+from prometheus_client.core import GaugeMetricFamily  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -93,6 +95,11 @@ class PolymarketCollector:
             "Consecutive losses at time of last trade",
             labels=["strategy", "paper"],
         )
+        state_read_success_g = GaugeMetricFamily(
+            "polymarket_state_read_success",
+            "Whether the strategy state file is readable (1=yes, 0=no)",
+            labels=["strategy"],
+        )
 
         retired = retired_strategies()
         pattern = os.path.join(self.state_dir, "*-trades.json")
@@ -105,10 +112,13 @@ class PolymarketCollector:
                     data = json.load(f)
             except (OSError, json.JSONDecodeError) as e:
                 log.warning("could not read %s: %s", path, e)
+                state_read_success_g.add_metric([strategy], 0)
                 continue
 
             if not isinstance(data, dict):
+                state_read_success_g.add_metric([strategy], 0)
                 continue
+            state_read_success_g.add_metric([strategy], 1)
 
             # Determine paper/live from the most recent trade in the list
             trades = data.get("trades") or []
@@ -158,6 +168,7 @@ class PolymarketCollector:
         yield avg_stake_g
         yield last_trade_age_g
         yield consecutive_losses_g
+        yield state_read_success_g
 
 
 def main():
