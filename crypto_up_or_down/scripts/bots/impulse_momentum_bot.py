@@ -139,8 +139,37 @@ def trade_chart(discord: DiscordTrades, trade: Trade, exit_ms: int | None = None
     entry_ms = trade.executed_at or trade.timestamp * 1000
     end_ms = exit_ms or int(time.time() * 1000)
     try:
-        frame = fetch_klines("BTCUSDT", "5m", end_ms - 2 * 3_600_000, end_ms)
-        return discord.chart(frame, "BTC 5m spot", entry_ms, exit_ms)
+        frame = fetch_klines("BTCUSDT", "1m", end_ms - 2 * 3_600_000, end_ms)
+        open_seconds = frame["open_time"].map(lambda value: int(pd.Timestamp(value).timestamp()))
+        window = frame.loc[(open_seconds >= trade.timestamp) & (open_seconds < trade.timestamp + 300)]
+        impulse = ""
+        if not window.empty:
+            impulse = f" | impulse ${float(window.iloc[-1]['close']) - float(window.iloc[0]['open']):+,.0f}"
+        title = f"BTC 1m spot | {trade.direction.upper()}{impulse}"
+        subtitle = (
+            f"entry {trade.execution_price:.3f} | bid/ask {trade.best_bid:.3f}/{trade.best_ask:.3f}"
+            if exit_ms is None
+            else f"entry {trade.execution_price:.3f} | exit {(trade.final_price or 0):.3f} | P&L ${trade.pnl:+.2f}"
+        )
+        yes_value = trade.final_price if exit_ms is not None and trade.final_price is not None else trade.best_ask
+        if not yes_value:
+            yes_value = trade.execution_price or trade.entry_price
+        no_value = trade.opposite_price
+        if no_value is None and yes_value is not None:
+            no_value = max(0.0, min(1.0, 1.0 - yes_value))
+        opposite = "DOWN" if trade.direction == "up" else "UP"
+        return discord.chart(
+            frame,
+            title,
+            entry_ms,
+            exit_ms,
+            highlight_ms=(trade.timestamp * 1000, (trade.timestamp + 300) * 1000),
+            subtitle=subtitle,
+            yes_label=f"YES {trade.direction.upper()}",
+            yes_value=yes_value,
+            no_label=f"NO {opposite}",
+            no_value=no_value,
+        )
     except Exception:
         return None
 

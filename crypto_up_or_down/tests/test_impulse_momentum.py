@@ -230,6 +230,52 @@ def test_paper_exit_realizes_bid_value() -> None:
     assert trade.to_nested_json()["settlement"]["force_exit_reason"] == "stop_loss_25%"
 
 
+def test_trade_chart_labels_impulse_window(monkeypatch: pytest.MonkeyPatch) -> None:
+    window_start = 1_700_000_000
+    frame = pd.DataFrame(
+        {
+            "open_time": pd.to_datetime([window_start, window_start + 60], unit="s", utc=True),
+            "open": [100_000.0, 100_040.0],
+            "high": [100_050.0, 100_090.0],
+            "low": [99_990.0, 100_030.0],
+            "close": [100_040.0, 100_080.0],
+        }
+    )
+    trade = Trade(
+        timestamp=window_start,
+        market_slug="btc-updown-5m-1700000000",
+        direction="up",
+        amount=10.0,
+        entry_price=0.72,
+        execution_price=0.72,
+        streak_length=0,
+        confidence=0.72,
+        paper=True,
+        executed_at=(window_start + 180) * 1000,
+        best_bid=0.70,
+        best_ask=0.72,
+        opposite_price=0.28,
+    )
+    calls = []
+
+    class FakeDiscord:
+        def chart(self, *args, **kwargs):
+            calls.append((args, kwargs))
+            return b"png"
+
+    monkeypatch.setattr(impulse_bot, "fetch_klines", lambda *_args: frame)
+
+    assert impulse_bot.trade_chart(FakeDiscord(), trade) == b"png"
+    args, kwargs = calls[0]
+    assert args[1] == "BTC 1m spot | UP | impulse $+80"
+    assert kwargs["highlight_ms"] == (window_start * 1000, (window_start + 300) * 1000)
+    assert kwargs["subtitle"] == "entry 0.720 | bid/ask 0.700/0.720"
+    assert kwargs["yes_label"] == "YES UP"
+    assert kwargs["yes_value"] == 0.72
+    assert kwargs["no_label"] == "NO DOWN"
+    assert kwargs["no_value"] == 0.28
+
+
 def test_paper_fok_rejects_partial_fill() -> None:
     market = Market(
         timestamp=1_700_000_000,
