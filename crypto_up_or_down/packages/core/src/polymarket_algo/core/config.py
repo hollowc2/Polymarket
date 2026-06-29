@@ -93,6 +93,11 @@ class Config:
     LIVE_KILL_SWITCH_FILE: str = os.getenv("LIVE_KILL_SWITCH_FILE", "")
     MAX_LIVE_ORDER_USD: float = float(os.getenv("MAX_LIVE_ORDER_USD", "0"))  # 0 disables cap
     MAX_LIVE_ORDER_PRICE: float = float(os.getenv("MAX_LIVE_ORDER_PRICE", "0.99"))  # 0 disables cap
+    MAX_LIVE_OPEN_ORDERS: int = int(os.getenv("MAX_LIVE_OPEN_ORDERS", "0"))  # 0 disables cap
+    MAX_LIVE_MARKET_EXPOSURE_USD: float = float(os.getenv("MAX_LIVE_MARKET_EXPOSURE_USD", "0"))  # 0 disables cap
+    MAX_LIVE_STRATEGY_EXPOSURE_USD: float = float(os.getenv("MAX_LIVE_STRATEGY_EXPOSURE_USD", "0"))  # 0 disables cap
+    MAX_LIVE_TOTAL_NOTIONAL_USD: float = float(os.getenv("MAX_LIVE_TOTAL_NOTIONAL_USD", "0"))  # 0 disables cap
+    MAX_LIVE_QUOTE_AGE_SECONDS: float = float(os.getenv("MAX_LIVE_QUOTE_AGE_SECONDS", "0"))  # 0 disables cap
 
     # Resilience settings
     CIRCUIT_BREAKER_THRESHOLD: int = int(os.getenv("CIRCUIT_BREAKER_THRESHOLD", "5"))

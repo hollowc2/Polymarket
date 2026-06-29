@@ -27,6 +27,7 @@ import logging
 import os
 import sys
 import time
+from collections import defaultdict
 from http.server import HTTPServer
 from pathlib import Path
 
@@ -43,6 +44,102 @@ log = logging.getLogger(__name__)
 
 STATE_DIR = os.environ.get("STATE_DIR", "/opt/polymarket/state")
 PORT = int(os.environ.get("EXPORTER_PORT", "8002"))
+OPEN_ORDER_STATUSES = {"pending", "submitted", "live", "open"}
+UNRESOLVED_ORDER_STATUSES = {"unknown", "cancel_failed"}
+
+
+def _as_float(value) -> float:
+    try:
+        return float(value or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _latest_ledger_state(path: str) -> tuple[dict[str, dict], bool]:
+    intents: dict[str, dict] = {}
+    latest: dict[str, dict] = {}
+    if not os.path.exists(path):
+        return {}, True
+
+    try:
+        with open(path) as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                record = json.loads(line)
+                if record.get("type") == "order_intent":
+                    intent = record.get("intent") or {}
+                    intent_id = intent.get("id")
+                    if intent_id:
+                        intents[intent_id] = intent
+                        latest.setdefault(
+                            intent_id,
+                            {
+                                "strategy": intent.get("strategy", "unknown"),
+                                "status": "pending",
+                                "amount_usd": _as_float(intent.get("amount_usd")),
+                            },
+                        )
+                elif record.get("type") == "order_event":
+                    intent_id = record.get("intent_id")
+                    if not intent_id:
+                        continue
+                    intent = intents.get(intent_id, {})
+                    latest[intent_id] = {
+                        "strategy": intent.get("strategy", "unknown"),
+                        "status": str(record.get("status") or "unknown").lower(),
+                        "amount_usd": _as_float(intent.get("amount_usd")),
+                    }
+    except (OSError, json.JSONDecodeError) as e:
+        log.warning("could not read order ledger %s: %s", path, e)
+        return {}, False
+    return latest, True
+
+
+def _reconciliation_rows(state_dir: str) -> list[tuple[str, float, float]]:
+    rows = []
+    for path in sorted(glob.glob(os.path.join(state_dir, "*reconciliation*.json"))):
+        try:
+            with open(path) as f:
+                data = json.load(f)
+        except (OSError, json.JSONDecodeError) as e:
+            log.warning("could not read reconciliation state %s: %s", path, e)
+            rows.append((os.path.basename(path), 0.0, 1.0))
+            continue
+
+        status = str(data.get("status", "")).lower()
+        stale = data.get("stale")
+        failed = data.get("failed")
+        if stale is None:
+            stale = status == "stale"
+        if failed is None:
+            failed = status in {"failed", "fail", "error"}
+        rows.append((os.path.basename(path), float(bool(stale)), float(bool(failed))))
+    return rows
+
+
+def _health_rows(state_dir: str) -> list[tuple[str, float | None, float, bool]]:
+    rows = []
+    for path in sorted(glob.glob(os.path.join(state_dir, "*-health.json"))):
+        strategy = os.path.basename(path).replace("-health.json", "")
+        try:
+            with open(path) as f:
+                data = json.load(f)
+        except (OSError, json.JSONDecodeError) as e:
+            log.warning("could not read health state %s: %s", path, e)
+            rows.append((strategy, None, 0.0, False))
+            continue
+
+        quote_age = data.get("quote_age_sec")
+        rows.append(
+            (
+                str(data.get("strategy") or strategy),
+                _as_float(quote_age) if quote_age is not None else None,
+                _as_float(data.get("api_errors_total")),
+                True,
+            )
+        )
+    return rows
 
 
 class PolymarketCollector:
@@ -100,9 +197,71 @@ class PolymarketCollector:
             "Whether the strategy state file is readable (1=yes, 0=no)",
             labels=["strategy"],
         )
+        order_status_g = GaugeMetricFamily(
+            "polymarket_order_ledger_status",
+            "Latest order ledger count by strategy and status",
+            labels=["strategy", "status"],
+        )
+        order_unknown_g = GaugeMetricFamily(
+            "polymarket_order_unknown",
+            "Order ledger entries with latest status unknown",
+            labels=["strategy"],
+        )
+        open_orders_g = GaugeMetricFamily(
+            "polymarket_open_orders",
+            "Open or unresolved order count",
+            labels=["strategy", "source"],
+        )
+        exposure_g = GaugeMetricFamily(
+            "polymarket_exposure_usd",
+            "Open or pending exposure in USD",
+            labels=["strategy", "source"],
+        )
+        cancel_failures_g = GaugeMetricFamily(
+            "polymarket_cancel_failures",
+            "Cancel failures observed in state or order ledger",
+            labels=["strategy", "source"],
+        )
+        kill_switch_g = GaugeMetricFamily(
+            "polymarket_live_kill_switch_active",
+            "Whether a live kill switch is active",
+            labels=["source"],
+        )
+        reconciliation_stale_g = GaugeMetricFamily(
+            "polymarket_reconciliation_stale",
+            "Whether reconciliation state is stale when a state file exists",
+            labels=["source"],
+        )
+        reconciliation_failed_g = GaugeMetricFamily(
+            "polymarket_reconciliation_failed",
+            "Whether reconciliation state is failed when a state file exists",
+            labels=["source"],
+        )
+        ledger_read_success_g = GaugeMetricFamily(
+            "polymarket_order_ledger_read_success",
+            "Whether the order ledger is readable (1=yes, 0=no)",
+            labels=[],
+        )
+        quote_age_g = GaugeMetricFamily(
+            "polymarket_quote_age_sec",
+            "Latest quote fetch duration or age in seconds",
+            labels=["strategy"],
+        )
+        api_errors_g = GaugeMetricFamily(
+            "polymarket_api_errors_total",
+            "API errors reported by strategy health files",
+            labels=["strategy"],
+        )
+        health_read_success_g = GaugeMetricFamily(
+            "polymarket_health_read_success",
+            "Whether strategy health files are readable (1=yes, 0=no)",
+            labels=["strategy"],
+        )
 
         retired = retired_strategies()
         pattern = os.path.join(self.state_dir, "*-trades.json")
+        state_cancel_failures: defaultdict[str, float] = defaultdict(float)
+        state_exposure: defaultdict[tuple[str, str], float] = defaultdict(float)
         for path in sorted(glob.glob(pattern)):
             strategy = os.path.basename(path).replace("-trades.json", "")
             if strategy in retired:
@@ -141,6 +300,11 @@ class PolymarketCollector:
                 daily_bets_g.add_metric(labels, float(daily_bets))
 
             total_trades_g.add_metric(labels, len(trades))
+            for trade in trades:
+                if trade.get("order_status") == "cancel_failed":
+                    state_cancel_failures[strategy] += 1
+                if trade.get("settlement", {}).get("status") == "pending":
+                    state_exposure[(strategy, paper)] += _as_float(trade.get("position", {}).get("amount"))
 
             settled = [t for t in trades if t.get("settlement", {}).get("status") == "settled"]
             if settled:
@@ -159,6 +323,60 @@ class PolymarketCollector:
                 if consec_losses is not None:
                     consecutive_losses_g.add_metric(labels, float(consec_losses))
 
+        ledger_path = os.environ.get("ORDER_LEDGER_FILE") or os.path.join(self.state_dir, "order_ledger.jsonl")
+        latest_orders, ledger_ok = _latest_ledger_state(ledger_path)
+        ledger_read_success_g.add_metric([], 1.0 if ledger_ok else 0.0)
+
+        ledger_status_counts: defaultdict[tuple[str, str], float] = defaultdict(float)
+        ledger_open_counts: defaultdict[str, float] = defaultdict(float)
+        ledger_open_exposure: defaultdict[str, float] = defaultdict(float)
+        ledger_cancel_failures: defaultdict[str, float] = defaultdict(float)
+        ledger_unknowns: defaultdict[str, float] = defaultdict(float)
+        for order in latest_orders.values():
+            strategy = str(order.get("strategy") or "unknown")
+            status = str(order.get("status") or "unknown").lower()
+            amount = _as_float(order.get("amount_usd"))
+            ledger_status_counts[(strategy, status)] += 1
+            if status == "unknown":
+                ledger_unknowns[strategy] += 1
+            if status in OPEN_ORDER_STATUSES or status in UNRESOLVED_ORDER_STATUSES:
+                ledger_open_counts[strategy] += 1
+                ledger_open_exposure[strategy] += amount
+            if status == "cancel_failed":
+                ledger_cancel_failures[strategy] += 1
+
+        for (strategy, status), count in sorted(ledger_status_counts.items()):
+            order_status_g.add_metric([strategy, status], count)
+        for strategy, count in sorted(ledger_unknowns.items()):
+            order_unknown_g.add_metric([strategy], count)
+        for strategy, count in sorted(ledger_open_counts.items()):
+            open_orders_g.add_metric([strategy, "ledger"], count)
+        for strategy, exposure in sorted(ledger_open_exposure.items()):
+            exposure_g.add_metric([strategy, "ledger"], exposure)
+        for strategy, count in sorted(ledger_cancel_failures.items()):
+            cancel_failures_g.add_metric([strategy, "ledger"], count)
+        for strategy, count in sorted(state_cancel_failures.items()):
+            cancel_failures_g.add_metric([strategy, "state"], count)
+        for (strategy, paper), exposure in sorted(state_exposure.items()):
+            exposure_g.add_metric([strategy, f"state:paper={paper}"], exposure)
+
+        kill_switch_g.add_metric(
+            ["env"],
+            1.0 if os.environ.get("LIVE_KILL_SWITCH", "").lower() in {"1", "true", "yes", "on"} else 0.0,
+        )
+        kill_file = os.environ.get("LIVE_KILL_SWITCH_FILE", "").strip()
+        kill_switch_g.add_metric(["file"], 1.0 if kill_file and os.path.exists(kill_file) else 0.0)
+
+        for source, stale, failed in _reconciliation_rows(self.state_dir):
+            reconciliation_stale_g.add_metric([source], stale)
+            reconciliation_failed_g.add_metric([source], failed)
+
+        for strategy, quote_age, api_errors, health_ok in _health_rows(self.state_dir):
+            health_read_success_g.add_metric([strategy], 1.0 if health_ok else 0.0)
+            api_errors_g.add_metric([strategy], api_errors)
+            if quote_age is not None:
+                quote_age_g.add_metric([strategy], quote_age)
+
         yield bankroll_g
         yield daily_pnl_g
         yield daily_bets_g
@@ -169,6 +387,18 @@ class PolymarketCollector:
         yield last_trade_age_g
         yield consecutive_losses_g
         yield state_read_success_g
+        yield order_status_g
+        yield order_unknown_g
+        yield open_orders_g
+        yield exposure_g
+        yield cancel_failures_g
+        yield kill_switch_g
+        yield reconciliation_stale_g
+        yield reconciliation_failed_g
+        yield ledger_read_success_g
+        yield quote_age_g
+        yield api_errors_g
+        yield health_read_success_g
 
 
 def main():

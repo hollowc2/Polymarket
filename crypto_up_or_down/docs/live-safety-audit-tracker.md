@@ -13,7 +13,7 @@ Status legend:
 
 ## Current Focus
 
-- `[~]` Next recommended slice: startup reconciliation for open/recent CLOB orders.
+- `[~]` Next recommended slice: structured live order/risk/reconciliation logs, if needed before live enablement.
 
 ## Phase 0 - Audit Review And Tracking
 
@@ -43,22 +43,22 @@ Status legend:
 
 ## Phase 4 - Startup Reconciliation
 
-- `[ ]` Reconcile local ledger/state with open/recent CLOB orders at startup.
-- `[ ]` Refuse new live orders when reconciliation is stale, failing, or incomplete.
-- `[ ]` Keep failed cancel attempts in unresolved state until confirmed cancelled/filled.
-- `[ ]` Add restart/open-order/cancel-failure tests.
+- `[x]` Reconcile local ledger/state with open/recent CLOB orders at startup.
+- `[x]` Refuse new live orders when reconciliation is stale, failing, or incomplete.
+- `[x]` Keep failed cancel attempts in unresolved state until confirmed cancelled/filled.
+- `[x]` Add restart/open-order/cancel-failure tests.
 
 ## Phase 5 - Central Live Risk Gates
 
 - `[x]` Add central live risk guard inside execution, not only script-level checks.
-- `[~]` Enforce max open orders, max per-market exposure, max per-strategy exposure, max notional, max order price, stale quote limit, and manual kill switch.
-- `[~]` Add tests for each hard rejection.
+- `[x]` Enforce max open orders, max per-market exposure, max per-strategy exposure, max notional, max order price, stale quote limit, and manual kill switch.
+- `[x]` Add tests for each hard rejection.
 
 ## Phase 6 - Market Data Freshness And Typed Errors
 
-- `[ ]` Add typed market/book snapshots with `fetched_at`, source, stale/error status, and diagnostics.
-- `[ ]` Fail closed on stale, malformed, missing, or one-sided execution data where live trading requires it.
-- `[ ]` Add tests for stale data, API errors, empty books, and one-sided books.
+- `[x]` Add typed market/book snapshots with `fetched_at`, source, stale/error status, and diagnostics.
+- `[x]` Fail closed on stale, malformed, missing, or one-sided execution data where live trading requires it.
+- `[x]` Add tests for stale data, API errors, empty books, and one-sided books.
 
 ## Phase 7 - Live Config Safety
 
@@ -68,9 +68,9 @@ Status legend:
 
 ## Phase 8 - Observability
 
-- `[ ]` Add structured order/risk/reconciliation/market-data logs.
-- `[ ]` Add Prometheus metrics for order status, unknowns, open orders, quote age, API errors, reconciliation, cancel failures, kill switch, and exposure.
-- `[ ]` Add or update alerts after metrics exist.
+- `[~]` Add structured order/risk/reconciliation/market-data logs.
+- `[x]` Add Prometheus metrics for order status, unknowns, open orders, quote age, API errors, reconciliation, cancel failures, kill switch, and exposure.
+- `[x]` Add or update alerts after metrics exist.
 
 ## Verification Log
 
@@ -83,6 +83,12 @@ Status legend:
 - 2026-06-29: Broad verification passed. `uv run pytest -q` returned `111 passed`; `uv run ruff check packages tests scripts/bots/impulse_momentum_bot.py` returned `All checks passed!` with `UV_CACHE_DIR=/tmp/uv-cache RUFF_CACHE_DIR=/tmp/ruff-cache`.
 - 2026-06-29: Commit checkpoint prepared on branch `feat/impulse-momentum-bot` for the first live-safety audit implementation slice. Scope: tracker, baseline test fixes, live FOK fail-closed semantics, JSONL order ledger, live confirmation gate, and first central live risk guards.
 - 2026-06-29: Phase 3 duplicate-idempotency slice complete. `JsonOrderLedger.has_intent()` now rejects duplicate strategy/market/direction/window intents and fails closed on corrupt JSONL before signing/submitting live FOK orders. Added duplicate-submit and corrupt-ledger tests. Verified `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_live_trader_fok.py -q`, `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q`, and targeted Ruff pass with `/tmp` caches.
+- 2026-06-29: Phase 4 and remaining concrete Phase 5 central-risk slice complete. `LiveTrader` now reconciles open/live CLOB orders at startup, records startup cancel success/failure in the order ledger, and refuses live FOK submits when reconciliation is incomplete. `JsonOrderLedger.risk_snapshot()` now backs live guards for max open orders, per-market exposure, per-strategy exposure, and total notional; stale quote rejection uses `precomputed_execution.fetched_at_ms` or `timestamp_ms` when `MAX_LIVE_QUOTE_AGE_SECONDS` is enabled. Verified `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_live_trader_fok.py -q` and `UV_CACHE_DIR=/tmp/uv-cache RUFF_CACHE_DIR=/tmp/ruff-cache uv run ruff check packages/executor/src/polymarket_algo/executor/trader.py packages/executor/src/polymarket_algo/executor/order_ledger.py packages/core/src/polymarket_algo/core/config.py tests/test_live_trader_fok.py`.
+- 2026-06-29: Phase 8 exporter metrics slice complete. `scripts/grafana_exporter.py` now exposes Prometheus gauges for latest order ledger status, unknown orders, open/unresolved orders, ledger read health, state/ledger cancel failures, kill switch env/file state, pending/open exposure, reconciliation stale/failed state, impulse quote age, impulse API errors, and health-file read state. `scripts/bots/impulse_momentum_bot.py` writes `impulse-momentum-health.json` beside its trade state as the quote/API metric source. Reused existing exporter logging for unreadable ledger/reconciliation/health files. Verified focused pytest and Ruff passes.
+- 2026-06-29: Phase 6 impulse-bot slice complete. `BookSnapshot` now carries executable depth plus `fetched_at`, `source`, stale/error status, and diagnostics; signal/entry quote fetches and paper exits fail closed on stale, API-error, empty, malformed, or one-sided book data before execution pricing or paper settlement. Verified `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_impulse_momentum.py -q` and `UV_CACHE_DIR=/tmp/uv-cache RUFF_CACHE_DIR=/tmp/ruff-cache uv run ruff check scripts/bots/impulse_momentum_bot.py tests/test_impulse_momentum.py`.
+- 2026-06-29: Phase 8 alert slice complete in `/opt/monitoring/prometheus-alerts/cryptoupdown.yml`. Added alerts for unreadable order ledger, unresolved orders, cancel failures, active kill switch, unreadable health state, slow quote fetches, and API error increases. Verified `docker exec butterfly_prometheus promtool check rules /etc/prometheus/alerts/cryptoupdown.yml`, reloaded Prometheus, and confirmed the new CryptoUpDown rules are loaded via `/api/v1/rules`.
+- 2026-06-29: Integrated verification passed after all agent slices and local fixes: `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q` returned `134 passed`; `UV_CACHE_DIR=/tmp/uv-cache RUFF_CACHE_DIR=/tmp/ruff-cache uv run ruff check packages tests scripts/bots/impulse_momentum_bot.py scripts/grafana_exporter.py` returned `All checks passed!`.
+- 2026-06-29: Runtime deploy check complete. Rebuilt/restarted `impulse-momentum-bot`, restarted bind-mounted `grafana-exporter`, confirmed impulse bot startup logs, and confirmed exporter now exposes `polymarket_order_ledger_read_success`, `polymarket_live_kill_switch_active`, `polymarket_api_errors_total`, and `polymarket_health_read_success`; `polymarket_quote_age_sec` exists and will emit a sample after the next quote fetch.
 
 ## Resume Notes
 

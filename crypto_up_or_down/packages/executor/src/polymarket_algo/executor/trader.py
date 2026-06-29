@@ -1593,6 +1593,7 @@ class LiveTrader:
         self._init_client()
         self._circuit_breaker = CircuitBreaker(name="polymarket-clob")
         self._rate_limiter = RateLimiter(requests_per_minute=60)
+        self._startup_reconciliation_ok = self.reconcile_startup_orders()
 
     def _validate_live_mode_config(self) -> None:
         if Config.APP_MODE not in {"paper", "live"}:
@@ -1616,7 +1617,12 @@ class LiveTrader:
         direction: str,
         amount: float,
         entry_price: float,
+        strategy: str,
+        quote_fetched_at_ms: int | None = None,
     ) -> tuple[bool, str]:
+        if not getattr(self, "_startup_reconciliation_ok", True):
+            return False, "startup reconciliation incomplete"
+
         if Config.LIVE_KILL_SWITCH:
             return False, "LIVE_KILL_SWITCH active"
 
@@ -1629,6 +1635,39 @@ class LiveTrader:
 
         if Config.MAX_LIVE_ORDER_PRICE > 0 and entry_price > Config.MAX_LIVE_ORDER_PRICE:
             return False, f"{direction} price {entry_price:.3f} exceeds MAX_LIVE_ORDER_PRICE {Config.MAX_LIVE_ORDER_PRICE:.3f}"
+
+        if Config.MAX_LIVE_QUOTE_AGE_SECONDS > 0:
+            if quote_fetched_at_ms is None:
+                return False, "quote timestamp missing"
+            quote_age = (int(time.time() * 1000) - quote_fetched_at_ms) / 1000
+            if quote_age > Config.MAX_LIVE_QUOTE_AGE_SECONDS:
+                return False, f"quote age {quote_age:.1f}s exceeds MAX_LIVE_QUOTE_AGE_SECONDS"
+
+        if any(
+            cap > 0
+            for cap in (
+                Config.MAX_LIVE_OPEN_ORDERS,
+                Config.MAX_LIVE_MARKET_EXPOSURE_USD,
+                Config.MAX_LIVE_STRATEGY_EXPOSURE_USD,
+                Config.MAX_LIVE_TOTAL_NOTIONAL_USD,
+            )
+        ):
+            try:
+                snapshot = self._order_ledger.risk_snapshot()
+            except Exception as e:
+                return False, f"could not read order ledger risk snapshot: {e}"
+            market_exposure = float(snapshot["market_exposure"].get(market.slug, 0.0))
+            strategy_exposure = float(snapshot["strategy_exposure"].get(strategy, 0.0))
+            total_notional = float(snapshot["total_notional"])
+
+            if Config.MAX_LIVE_OPEN_ORDERS > 0 and int(snapshot["open_orders"]) >= Config.MAX_LIVE_OPEN_ORDERS:
+                return False, f"MAX_LIVE_OPEN_ORDERS reached ({Config.MAX_LIVE_OPEN_ORDERS})"
+            if Config.MAX_LIVE_MARKET_EXPOSURE_USD > 0 and market_exposure + amount > Config.MAX_LIVE_MARKET_EXPOSURE_USD:
+                return False, "market exposure would exceed MAX_LIVE_MARKET_EXPOSURE_USD"
+            if Config.MAX_LIVE_STRATEGY_EXPOSURE_USD > 0 and strategy_exposure + amount > Config.MAX_LIVE_STRATEGY_EXPOSURE_USD:
+                return False, "strategy exposure would exceed MAX_LIVE_STRATEGY_EXPOSURE_USD"
+            if Config.MAX_LIVE_TOTAL_NOTIONAL_USD > 0 and total_notional + amount > Config.MAX_LIVE_TOTAL_NOTIONAL_USD:
+                return False, "total notional would exceed MAX_LIVE_TOTAL_NOTIONAL_USD"
 
         return True, "OK"
 
@@ -1834,8 +1873,7 @@ class LiveTrader:
             print(f"[LIVE] Order rejected: {error_msg}")
             return None
 
-        # Precomputed execution data is only used by paper mode; discard if passed
-        kwargs.pop("precomputed_execution", None)
+        precomputed_execution = kwargs.pop("precomputed_execution", None)
 
         token_id = market.up_token_id if direction == "up" else market.down_token_id
         if token_id is None:
@@ -1843,13 +1881,23 @@ class LiveTrader:
         entry_price = market.up_price if direction == "up" else market.down_price
         if entry_price <= 0:
             entry_price = 0.5
-        risk_ok, risk_msg = self._check_live_risk_guard(market, direction, amount, entry_price)
+        strategy = str(kwargs.get("strategy", "streak"))
+        quote_fetched_at_ms = None
+        if isinstance(precomputed_execution, dict):
+            quote_fetched_at_ms = precomputed_execution.get("fetched_at_ms") or precomputed_execution.get("timestamp_ms")
+        risk_ok, risk_msg = self._check_live_risk_guard(
+            market,
+            direction,
+            amount,
+            entry_price,
+            strategy,
+            int(quote_fetched_at_ms) if quote_fetched_at_ms is not None else None,
+        )
         if not risk_ok:
             print(f"[LIVE] Order rejected by risk guard: {risk_msg}")
             return None
 
         executed_at = int(time.time() * 1000)  # milliseconds
-        strategy = str(kwargs.get("strategy", "streak"))
         intent = OrderIntent(
             id=f"{strategy}:{market.slug}:{direction}:{market.timestamp}",
             strategy=strategy,
@@ -2389,24 +2437,89 @@ class LiveTrader:
             print(f"[LIVE] redeem_winning_position failed: {e}")
             return False
 
-    def cancel_all_open_orders(self) -> int:
+    def reconcile_startup_orders(self) -> bool:
         """Cancel all open orders on CLOB (call at startup for crash recovery).
 
-        Returns the number of orders cancelled.
+        Returns True only when every observed open order was cancelled.
         """
         try:
             all_orders = self.client.get_orders()
             # get_orders() returns a dict with a "data" key, or a list directly
             raw = all_orders.get("data", all_orders) if isinstance(all_orders, dict) else all_orders
-            orders = [o for o in (raw or []) if isinstance(o, dict) and o.get("status", "").upper() == "OPEN"]
-            for order in orders:
+            intent_ids_by_order_id = self._order_ledger.intent_ids_by_order_id()
+            orders = [
+                o
+                for o in (raw or [])
+                if isinstance(o, dict) and o.get("status", "").upper() in {"OPEN", "LIVE"}
+            ]
+            self._startup_reconciled_open_orders = len(orders)
+            failed = False
+            for order in raw or []:
+                if not isinstance(order, dict):
+                    continue
+                order_id = order.get("id") or order.get("orderID")
+                intent_id = intent_ids_by_order_id.get(str(order_id), f"startup:{order_id}")
+                status = order.get("status", "").upper()
+                if status in {"FILLED", "MATCHED"}:
+                    self._order_ledger.record_event(
+                        OrderLedgerEvent(
+                            event="startup_order_filled",
+                            intent_id=intent_id,
+                            timestamp_ms=int(time.time() * 1000),
+                            status="filled",
+                            order_id=order_id,
+                            payload=order,
+                        )
+                    )
+                    continue
+                if status in {"CANCELED", "CANCELLED", "EXPIRED"}:
+                    self._order_ledger.record_event(
+                        OrderLedgerEvent(
+                            event="startup_order_cancelled",
+                            intent_id=intent_id,
+                            timestamp_ms=int(time.time() * 1000),
+                            status="cancelled",
+                            order_id=order_id,
+                            payload=order,
+                        )
+                    )
+                    continue
+                if status not in {"OPEN", "LIVE"}:
+                    continue
                 try:
-                    self.client.cancel(order["id"])
+                    self.client.cancel(order_id)
+                    self._order_ledger.record_event(
+                        OrderLedgerEvent(
+                            event="startup_order_cancelled",
+                            intent_id=intent_id,
+                            timestamp_ms=int(time.time() * 1000),
+                            status="cancelled",
+                            order_id=order_id,
+                            payload=order,
+                        )
+                    )
                 except Exception as e:
-                    print(f"[LIVE] Startup: failed to cancel order {order.get('id')}: {e}")
+                    failed = True
+                    print(f"[LIVE] Startup: failed to cancel order {order_id}: {e}")
+                    self._order_ledger.record_event(
+                        OrderLedgerEvent(
+                            event="startup_order_cancel_failed",
+                            intent_id=intent_id,
+                            timestamp_ms=int(time.time() * 1000),
+                            status="cancel_failed",
+                            order_id=order_id,
+                            reason=str(e),
+                            payload=order,
+                        )
+                    )
             if orders:
                 print(f"[LIVE] Startup: cancelled {len(orders)} orphaned open order(s)")
-            return len(orders)
+            return not failed
         except Exception as e:
             print(f"[LIVE] Startup cleanup error: {e}")
-            return 0
+            return False
+
+    def cancel_all_open_orders(self) -> int:
+        ok = self.reconcile_startup_orders()
+        self._startup_reconciliation_ok = ok
+        return getattr(self, "_startup_reconciled_open_orders", 0) if ok else 0

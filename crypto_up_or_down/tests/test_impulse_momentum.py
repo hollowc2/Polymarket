@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime, timedelta
 
 import pandas as pd
@@ -12,9 +13,11 @@ import scripts.bots.impulse_momentum_bot as impulse_bot
 from scripts.bots.impulse_momentum_bot import (
     book_snapshot,
     entry_price_allowed,
+    fetch_book_snapshot,
     portfolio_bet_size,
     sell_execution,
     settle_paper_exit,
+    write_health,
 )
 
 
@@ -53,19 +56,61 @@ def test_book_snapshot_uses_executable_top_levels() -> None:
             "asks": [{"price": "0.73", "size": "20"}, {"price": "0.72", "size": "50"}],
         }
     )
-    assert snapshot is not None
+    assert snapshot.executable
     assert snapshot.best_bid == pytest.approx(0.69)
     assert snapshot.best_ask == pytest.approx(0.72)
     assert snapshot.spread == pytest.approx(0.03)
     assert snapshot.top_ask_notional == pytest.approx(36.0)
+    assert snapshot.fetched_at > 0
+    assert snapshot.source == "clob"
 
 
-def test_book_snapshot_keeps_ask_only_outcome_for_skew_comparison() -> None:
+def test_book_snapshot_rejects_one_sided_books() -> None:
     snapshot = book_snapshot({"bids": [], "asks": [{"price": "0.08", "size": "100"}]})
-    assert snapshot is not None
-    assert snapshot.best_bid == 0.0
-    assert snapshot.best_ask == pytest.approx(0.08)
-    assert snapshot.spread == pytest.approx(0.08)
+    assert not snapshot.executable
+    assert snapshot.error == "one_sided_book"
+
+
+def test_book_snapshot_rejects_empty_and_malformed_books() -> None:
+    assert book_snapshot({}).error == "empty_book"
+    assert book_snapshot({"bids": [{"price": "bad", "size": "1"}], "asks": []}).error == "malformed_book"
+
+
+def test_fetch_book_snapshot_marks_api_errors_and_stale_data(monkeypatch: pytest.MonkeyPatch) -> None:
+    class ErrorClient:
+        def get_orderbook(self, _token_id: str) -> dict:
+            raise RuntimeError("boom")
+
+    error = fetch_book_snapshot(ErrorClient(), "up", max_age_sec=1.0, source="test:up")
+    assert error.error == "api_error"
+    assert error.source == "test:up"
+    assert "boom" in error.diagnostics
+
+    class SlowClient:
+        def get_orderbook(self, _token_id: str) -> dict:
+            return {
+                "bids": [{"price": "0.69", "size": "10"}],
+                "asks": [{"price": "0.70", "size": "10"}],
+            }
+
+    monotonic_values = iter([10.0, 20.0])
+    monkeypatch.setattr(impulse_bot.time, "monotonic", lambda: next(monotonic_values))
+    stale = fetch_book_snapshot(SlowClient(), "up", max_age_sec=1.0, source="test:up")
+    assert stale.stale
+    assert stale.error == "stale_book"
+    assert "fetch_sec=10.000" in stale.diagnostics
+
+
+def test_write_health_records_quote_age_and_api_errors(tmp_path) -> None:
+    path = tmp_path / "impulse-momentum-health.json"
+
+    write_health(path, quote_age_sec=0.1234, api_errors_total=2, last_error="x" * 400)
+
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert data["strategy"] == "impulse-momentum"
+    assert data["quote_age_sec"] == 0.123
+    assert data["api_errors_total"] == 2
+    assert len(data["last_error"]) == 300
 
 
 def test_portfolio_sizing_compounds_with_aum() -> None:
@@ -83,7 +128,8 @@ def test_sell_execution_walks_bids_and_requires_full_depth() -> None:
         "bids": [
             {"price": "0.55", "size": "3"},
             {"price": "0.60", "size": "2"},
-        ]
+        ],
+        "asks": [{"price": "0.62", "size": "10"}],
     }
     execution = sell_execution(book, 4)
     assert execution is not None
@@ -100,8 +146,9 @@ def test_entry_drift_limit_is_inclusive() -> None:
 def _run_rejected_entry(
     monkeypatch: pytest.MonkeyPatch,
     *,
-    books: list[dict],
+    books: list[dict | Exception],
     closes: list[float],
+    monotonic_values: list[float] | None = None,
 ) -> tuple[list[object], list[object]]:
     window_start = 1_700_000_100
     market = Market(
@@ -129,7 +176,10 @@ def _run_rejected_entry(
             return market
 
         def get_orderbook(self, token_id: str) -> dict:
-            return next(self.books)
+            book = next(self.books)
+            if isinstance(book, Exception):
+                raise book
+            return book
 
         def get_execution_price(self, *args, **kwargs):
             execution_calls.append((args, kwargs))
@@ -149,7 +199,11 @@ def _run_rejected_entry(
     monkeypatch.setattr(impulse_bot, "current_impulse", lambda *_args: (100_000.0, next(close_values)))
     monkeypatch.setattr(impulse_bot.signal, "signal", lambda *_args: None)
     monkeypatch.setattr(impulse_bot.time, "time", lambda: window_start + 180)
-    monkeypatch.setattr(impulse_bot.time, "monotonic", lambda: 1.0)
+    if monotonic_values is None:
+        monkeypatch.setattr(impulse_bot.time, "monotonic", lambda: 1.0)
+    else:
+        values = iter(monotonic_values)
+        monkeypatch.setattr(impulse_bot.time, "monotonic", lambda: next(values))
     monkeypatch.setattr(impulse_bot.time, "sleep", lambda *_args: setattr(impulse_bot, "running", False))
     monkeypatch.setattr(
         "sys.argv",
@@ -173,6 +227,42 @@ def test_selected_ask_above_configured_ceiling_is_rejected(monkeypatch: pytest.M
         monkeypatch,
         books=[expensive_up, cheap_down, expensive_up, cheap_down],
         closes=[100_080.0, 100_080.0],
+    )
+    assert execution_calls == []
+    assert placed_bets == []
+
+
+@pytest.mark.parametrize(
+    ("books", "monotonic_values"),
+    [
+        ([{}, {}], None),
+        (
+            [
+                {"bids": [], "asks": [{"price": "0.72", "size": "100"}]},
+                {"bids": [{"price": "0.27", "size": "100"}], "asks": [{"price": "0.28", "size": "100"}]},
+            ],
+            None,
+        ),
+        ([RuntimeError("book api down"), {}], None),
+        (
+            [
+                {"bids": [{"price": "0.71", "size": "100"}], "asks": [{"price": "0.72", "size": "100"}]},
+                {"bids": [{"price": "0.27", "size": "100"}], "asks": [{"price": "0.28", "size": "100"}]},
+            ],
+            [0.0, 9.0, 9.0, 9.0],
+        ),
+    ],
+)
+def test_bad_signal_books_fail_closed_before_execution(
+    monkeypatch: pytest.MonkeyPatch,
+    books: list[dict | Exception],
+    monotonic_values: list[float] | None,
+) -> None:
+    execution_calls, placed_bets = _run_rejected_entry(
+        monkeypatch,
+        books=books,
+        closes=[100_080.0],
+        monotonic_values=monotonic_values,
     )
     assert execution_calls == []
     assert placed_bets == []

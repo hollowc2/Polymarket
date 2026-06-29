@@ -4,10 +4,12 @@
 from __future__ import annotations
 
 import argparse
+import json
 import signal
 import time
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 
 import pandas as pd
 from polymarket_algo.core.config import LOCAL_TZ, Config
@@ -22,10 +24,22 @@ running = True
 
 @dataclass(frozen=True)
 class BookSnapshot:
+    bids: tuple[tuple[float, float], ...]
+    asks: tuple[tuple[float, float], ...]
     best_bid: float
     best_ask: float
     spread: float
     top_ask_notional: float
+    fetched_at: float
+    fetch_sec: float = 0.0
+    source: str = "clob"
+    stale: bool = False
+    error: str | None = None
+    diagnostics: str = ""
+
+    @property
+    def executable(self) -> bool:
+        return not self.stale and self.error is None
 
 
 @dataclass(frozen=True)
@@ -44,24 +58,143 @@ def log(message: str) -> None:
     print(f"[{timestamp}] {message}", flush=True)
 
 
-def book_snapshot(book: dict) -> BookSnapshot | None:
-    bids = book.get("bids") or []
-    asks = book.get("asks") or []
-    if not asks:
-        return None
-    best_ask_level = min(asks, key=lambda level: float(level["price"]))
-    best_bid = 0.0
-    if bids:
-        best_bid_level = max(bids, key=lambda level: float(level["price"]))
-        best_bid = float(best_bid_level["price"])
-    best_ask = float(best_ask_level["price"])
-    ask_size = float(best_ask_level["size"])
+def _empty_book_snapshot(*, fetched_at: float, source: str, error: str, diagnostics: str = "") -> BookSnapshot:
     return BookSnapshot(
+        bids=(),
+        asks=(),
+        best_bid=0.0,
+        best_ask=0.0,
+        spread=0.0,
+        top_ask_notional=0.0,
+        fetched_at=fetched_at,
+        fetch_sec=0.0,
+        source=source,
+        error=error,
+        diagnostics=diagnostics,
+    )
+
+
+def _levels(raw_levels: object, *, reverse: bool) -> tuple[tuple[float, float], ...]:
+    if not isinstance(raw_levels, list):
+        raise ValueError("levels_not_list")
+    levels = tuple(
+        sorted(
+            ((float(level["price"]), float(level["size"])) for level in raw_levels),
+            reverse=reverse,
+        )
+    )
+    if any(price <= 0 or size <= 0 for price, size in levels):
+        raise ValueError("nonpositive_level")
+    return levels
+
+
+def book_snapshot(
+    book: dict | None,
+    *,
+    fetched_at: float | None = None,
+    source: str = "clob",
+    stale: bool = False,
+    diagnostics: str = "",
+    fetch_sec: float = 0.0,
+) -> BookSnapshot:
+    fetched_at = fetched_at or time.time()
+    if not isinstance(book, dict):
+        return _empty_book_snapshot(fetched_at=fetched_at, source=source, error="missing_book", diagnostics=diagnostics)
+    try:
+        bids = _levels(book.get("bids") or [], reverse=True)
+        asks = _levels(book.get("asks") or [], reverse=False)
+    except (KeyError, TypeError, ValueError) as exc:
+        return _empty_book_snapshot(
+            fetched_at=fetched_at,
+            source=source,
+            error="malformed_book",
+            diagnostics=f"{diagnostics}; {exc}".strip("; "),
+        )
+    if not bids and not asks:
+        return _empty_book_snapshot(fetched_at=fetched_at, source=source, error="empty_book", diagnostics=diagnostics)
+    if not bids or not asks:
+        return _empty_book_snapshot(
+            fetched_at=fetched_at,
+            source=source,
+            error="one_sided_book",
+            diagnostics=diagnostics,
+        )
+    best_bid = bids[0][0]
+    best_ask, ask_size = asks[0]
+    return BookSnapshot(
+        bids=bids,
+        asks=asks,
         best_bid=best_bid,
         best_ask=best_ask,
         spread=max(0.0, best_ask - best_bid),
         top_ask_notional=best_ask * ask_size,
+        fetched_at=fetched_at,
+        fetch_sec=fetch_sec,
+        source=source,
+        stale=stale,
+        error="stale_book" if stale else None,
+        diagnostics=diagnostics,
     )
+
+
+def fetch_book_snapshot(
+    client: PolymarketClient,
+    token_id: str,
+    *,
+    max_age_sec: float,
+    source: str,
+) -> BookSnapshot:
+    started = time.monotonic()
+    try:
+        book = client.get_orderbook(token_id)
+    except Exception as exc:
+        return _empty_book_snapshot(
+            fetched_at=time.time(),
+            source=source,
+            error="api_error",
+            diagnostics=str(exc),
+        )
+    elapsed = time.monotonic() - started
+    return book_snapshot(
+        book,
+        fetched_at=time.time(),
+        source=source,
+        stale=elapsed > max_age_sec,
+        diagnostics=f"fetch_sec={elapsed:.3f}",
+        fetch_sec=elapsed,
+    )
+
+
+def require_executable_books(up_book: BookSnapshot, down_book: BookSnapshot) -> None:
+    rejected = [book for book in (up_book, down_book) if not book.executable]
+    if rejected:
+        detail = ", ".join(f"{book.source}:{book.error or 'stale'}:{book.diagnostics}" for book in rejected)
+        raise RuntimeError(f"CLOB order book rejected: {detail}")
+
+
+def write_health(
+    path: Path,
+    *,
+    quote_age_sec: float | None = None,
+    api_errors_total: int = 0,
+    last_error: str = "",
+) -> None:
+    data = {
+        "strategy": "impulse-momentum",
+        "updated_at_ms": int(time.time() * 1000),
+        "api_errors_total": api_errors_total,
+    }
+    if quote_age_sec is not None:
+        data["quote_age_sec"] = round(quote_age_sec, 3)
+    if last_error:
+        data["last_error"] = last_error[:300]
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(json.dumps(data, sort_keys=True), encoding="utf-8")
+        tmp.replace(path)
+    except OSError as exc:
+        log(f"Health write skipped: {exc}")
 
 
 def portfolio_bet_size(bankroll: float, risk_pct: float, max_notional: float) -> float:
@@ -72,15 +205,18 @@ def portfolio_bet_size(bankroll: float, risk_pct: float, max_notional: float) ->
     return round(min(target, bankroll), 2)
 
 
-def sell_execution(book: dict | None, shares: float) -> SellExecution | None:
+def sell_execution(book: dict | BookSnapshot | None, shares: float) -> SellExecution | None:
     """Return bid-side VWAP only when every share can fill."""
     if shares <= 0:
         return None
+    snapshot = book if isinstance(book, BookSnapshot) else book_snapshot(book)
+    if snapshot.error in {"missing_book", "malformed_book", "empty_book"} or snapshot.stale:
+        return None
     remaining = shares
     proceeds = 0.0
-    for level in sorted((book or {}).get("bids") or [], key=lambda item: float(item["price"]), reverse=True):
-        size = min(remaining, float(level["size"]))
-        proceeds += size * float(level["price"])
+    for price, level_size in snapshot.bids:
+        size = min(remaining, level_size)
+        proceeds += size * price
         remaining -= size
         if remaining <= 1e-9:
             return SellExecution(price=proceeds / shares, proceeds=proceeds)
@@ -215,6 +351,7 @@ def monitor_pending(
     discord: DiscordTrades,
     exit_before_sec: int,
     stop_loss_pct: float,
+    max_quote_age_sec: float,
 ) -> None:
     for trade in [item for item in state.trades if item.settlement_status == "pending"]:
         market = client.get_market(trade.timestamp, use_cache=False)
@@ -238,7 +375,15 @@ def monitor_pending(
         exit_reason = ""
         entry_price = trade.execution_price if trade.execution_price > 0 else trade.entry_price
         shares = trade.shares_bought or (trade.amount / entry_price if entry_price > 0 else 0.0)
-        execution = sell_execution(client.get_orderbook(token_id), shares)
+        execution = sell_execution(
+            fetch_book_snapshot(
+                client,
+                token_id,
+                max_age_sec=max_quote_age_sec,
+                source=f"exit:{token_id}",
+            ),
+            shares,
+        )
         if execution is None:
             continue
         if execution.price <= entry_price * (1.0 - stop_loss_pct):
@@ -331,7 +476,10 @@ def main() -> None:
 
     traded_windows = {trade.timestamp for trade in state.trades}
     consecutive_errors = 0
+    api_errors_total = 0
     last_risk_pause_reason: str | None = None
+    health_file = Path(Config.TRADES_FILE).with_name("impulse-momentum-health.json")
+    write_health(health_file)
 
     log("PAPER ONLY — live order placement is not enabled")
     log(
@@ -343,7 +491,7 @@ def main() -> None:
 
     while running:
         try:
-            monitor_pending(state, client, discord, args.exit_before_sec, args.stop_loss_pct)
+            monitor_pending(state, client, discord, args.exit_before_sec, args.stop_loss_pct, args.max_quote_age_sec)
 
             now = time.time()
             window_start = (int(now) // 300) * 300
@@ -372,17 +520,24 @@ def main() -> None:
             if not market.up_token_id or not market.down_token_id:
                 raise RuntimeError("market token IDs unavailable")
 
-            quote_started = time.monotonic()
-            up_book = book_snapshot(client.get_orderbook(market.up_token_id))
-            down_book = book_snapshot(client.get_orderbook(market.down_token_id))
-            quote_age = time.monotonic() - quote_started
-            if not up_book or not down_book:
-                raise RuntimeError("CLOB order book unavailable")
-            if quote_age > args.max_quote_age_sec:
-                log(f"Skip stale quote cycle: {quote_age:.1f}s > {args.max_quote_age_sec:.1f}s")
-                consecutive_errors = 0
-                time.sleep(args.poll_sec)
-                continue
+            up_book = fetch_book_snapshot(
+                client,
+                market.up_token_id,
+                max_age_sec=args.max_quote_age_sec,
+                source=f"signal:up:{market.up_token_id}",
+            )
+            down_book = fetch_book_snapshot(
+                client,
+                market.down_token_id,
+                max_age_sec=args.max_quote_age_sec,
+                source=f"signal:down:{market.down_token_id}",
+            )
+            require_executable_books(up_book, down_book)
+            write_health(
+                health_file,
+                quote_age_sec=max(up_book.fetch_sec, down_book.fetch_sec),
+                api_errors_total=api_errors_total,
+            )
 
             interval_open, spot_price = current_impulse("BTCUSDT", window_start)
             frame = pd.DataFrame(
@@ -425,17 +580,24 @@ def main() -> None:
                 time.sleep(args.poll_sec)
                 continue
 
-            quote_started = time.monotonic()
-            up_book = book_snapshot(client.get_orderbook(market.up_token_id))
-            down_book = book_snapshot(client.get_orderbook(market.down_token_id))
-            quote_age = time.monotonic() - quote_started
-            if not up_book or not down_book:
-                raise RuntimeError("fresh CLOB order book unavailable")
-            if quote_age > args.max_quote_age_sec:
-                log(f"Skip stale execution quotes: {quote_age:.1f}s > {args.max_quote_age_sec:.1f}s")
-                consecutive_errors = 0
-                time.sleep(args.poll_sec)
-                continue
+            up_book = fetch_book_snapshot(
+                client,
+                market.up_token_id,
+                max_age_sec=args.max_quote_age_sec,
+                source=f"execution:up:{market.up_token_id}",
+            )
+            down_book = fetch_book_snapshot(
+                client,
+                market.down_token_id,
+                max_age_sec=args.max_quote_age_sec,
+                source=f"execution:down:{market.down_token_id}",
+            )
+            require_executable_books(up_book, down_book)
+            write_health(
+                health_file,
+                quote_age_sec=max(up_book.fetch_sec, down_book.fetch_sec),
+                api_errors_total=api_errors_total,
+            )
 
             interval_open, spot_price = current_impulse("BTCUSDT", window_start)
             frame = pd.DataFrame(
@@ -517,6 +679,9 @@ def main() -> None:
                     "fill_pct": fill_pct,
                     "best_bid": selected_book.best_bid,
                     "best_ask": selected_book.best_ask,
+                    "fetched_at": selected_book.fetched_at,
+                    "fetched_at_ms": int(selected_book.fetched_at * 1000),
+                    "source": selected_book.source,
                 },
             )
             if trade is None:
@@ -549,6 +714,8 @@ def main() -> None:
             break
         except Exception as exc:
             consecutive_errors += 1
+            api_errors_total += 1
+            write_health(health_file, api_errors_total=api_errors_total, last_error=str(exc))
             log(f"Cycle error {consecutive_errors}/{args.max_api_errors}: {exc}")
             if consecutive_errors >= args.max_api_errors:
                 log(f"API kill-switch cooldown: {args.error_cooldown_sec:.0f}s")

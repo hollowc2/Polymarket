@@ -21,10 +21,20 @@ class _FakeOrderType:
 
 
 class _FakeClient:
-    def __init__(self, *, response: dict | None = None, error: Exception | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        response: dict | None = None,
+        error: Exception | None = None,
+        orders: list[dict] | None = None,
+        cancel_error: Exception | None = None,
+    ) -> None:
         self.response = response if response is not None else {"orderID": "order-1"}
         self.error = error
+        self.orders = orders or []
+        self.cancel_error = cancel_error
         self.post_count = 0
+        self.cancelled = []
 
     def create_market_order(self, order) -> object:
         return {"signed": order.kwargs}
@@ -35,6 +45,14 @@ class _FakeClient:
             raise self.error
         return self.response
 
+    def get_orders(self):
+        return self.orders
+
+    def cancel(self, order_id: str) -> None:
+        if self.cancel_error is not None:
+            raise self.cancel_error
+        self.cancelled.append(order_id)
+
 
 class _FakeLedger:
     def __init__(
@@ -43,10 +61,17 @@ class _FakeLedger:
         intent_error: Exception | None = None,
         existing_intents: set[str] | None = None,
         read_error: Exception | None = None,
+        risk_snapshot: dict | None = None,
     ) -> None:
         self.intent_error = intent_error
         self.existing_intents = existing_intents or set()
         self.read_error = read_error
+        self._risk_snapshot = risk_snapshot or {
+            "open_orders": 0,
+            "market_exposure": {},
+            "strategy_exposure": {},
+            "total_notional": 0.0,
+        }
         self.intents = []
         self.events = []
 
@@ -62,6 +87,16 @@ class _FakeLedger:
 
     def record_event(self, event) -> None:
         self.events.append(event)
+
+    def risk_snapshot(self) -> dict:
+        if self.read_error is not None:
+            raise self.read_error
+        return self._risk_snapshot
+
+    def intent_ids_by_order_id(self) -> dict[str, str]:
+        if self.read_error is not None:
+            raise self.read_error
+        return {}
 
 
 def _market() -> Market:
@@ -94,6 +129,7 @@ def _trader(
     trader.OrderType = _FakeOrderType
     trader.BUY = "BUY"
     trader.SELL = "SELL"
+    trader._startup_reconciliation_ok = True
     trader._get_order_status = lambda _order_id: status_result or {
         "status": "filled",
         "filled_size": 10.0,
@@ -216,6 +252,112 @@ def test_live_fok_max_price_returns_none_before_submit(monkeypatch: pytest.Monke
     assert ledger.intents == []
 
 
+def test_live_fok_startup_reconciliation_failure_returns_none_before_submit() -> None:
+    client = _FakeClient()
+    trader = _trader(client=client)
+    trader._startup_reconciliation_ok = False
+
+    assert trader.place_bet(_market(), "up", 5.0, 0.9, 3) is None
+    assert client.post_count == 0
+
+
+def test_live_fok_stale_quote_returns_none_before_submit(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _FakeClient()
+    trader = _trader(client=client)
+    monkeypatch.setattr(Config, "MAX_LIVE_QUOTE_AGE_SECONDS", 1.0)
+
+    assert (
+        trader.place_bet(
+            _market(),
+            "up",
+            5.0,
+            0.9,
+            3,
+            precomputed_execution={"fetched_at_ms": 1},
+        )
+        is None
+    )
+    assert client.post_count == 0
+
+
+@pytest.mark.parametrize(
+    ("config_name", "config_value", "snapshot"),
+    [
+        (
+            "MAX_LIVE_OPEN_ORDERS",
+            1,
+            {"open_orders": 1, "market_exposure": {}, "strategy_exposure": {}, "total_notional": 0.0},
+        ),
+        (
+            "MAX_LIVE_MARKET_EXPOSURE_USD",
+            9.0,
+            {
+                "open_orders": 0,
+                "market_exposure": {"btc-updown-5m-1771051500": 5.0},
+                "strategy_exposure": {},
+                "total_notional": 5.0,
+            },
+        ),
+        (
+            "MAX_LIVE_STRATEGY_EXPOSURE_USD",
+            9.0,
+            {"open_orders": 0, "market_exposure": {}, "strategy_exposure": {"streak": 5.0}, "total_notional": 5.0},
+        ),
+        (
+            "MAX_LIVE_TOTAL_NOTIONAL_USD",
+            9.0,
+            {"open_orders": 0, "market_exposure": {}, "strategy_exposure": {}, "total_notional": 5.0},
+        ),
+    ],
+)
+def test_live_fok_exposure_caps_return_none_before_submit(
+    config_name: str,
+    config_value: float,
+    snapshot: dict,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _FakeClient()
+    trader = _trader(client=client, ledger=_FakeLedger(risk_snapshot=snapshot))
+    monkeypatch.setattr(Config, config_name, config_value)
+
+    assert trader.place_bet(_market(), "up", 5.0, 0.9, 3) is None
+    assert client.post_count == 0
+
+
+def test_live_startup_reconciliation_cancels_open_orders() -> None:
+    client = _FakeClient(orders=[{"id": "open-1", "status": "OPEN"}])
+    ledger = _FakeLedger()
+    trader = _trader(client=client, ledger=ledger)
+
+    assert trader.reconcile_startup_orders() is True
+    assert client.cancelled == ["open-1"]
+    assert ledger.events[-1].event == "startup_order_cancelled"
+
+
+def test_live_startup_reconciliation_records_recent_filled_orders() -> None:
+    client = _FakeClient(orders=[{"id": "filled-1", "status": "FILLED"}])
+    ledger = _FakeLedger()
+    trader = _trader(client=client, ledger=ledger)
+
+    assert trader.reconcile_startup_orders() is True
+    assert client.cancelled == []
+    assert ledger.events[-1].event == "startup_order_filled"
+    assert ledger.events[-1].status == "filled"
+
+
+def test_live_startup_reconciliation_failed_cancel_blocks_new_orders() -> None:
+    client = _FakeClient(orders=[{"id": "open-1", "status": "OPEN"}], cancel_error=RuntimeError("nope"))
+    ledger = _FakeLedger()
+    trader = _trader(client=client, ledger=ledger)
+
+    assert trader.reconcile_startup_orders() is False
+    assert ledger.events[-1].event == "startup_order_cancel_failed"
+    assert ledger.events[-1].status == "cancel_failed"
+    trader._startup_reconciliation_ok = False
+    assert trader.place_bet(_market(), "up", 5.0, 0.9, 3) is None
+    assert client.post_count == 0
+
+
 def test_live_fok_filled_status_returns_trade() -> None:
     ledger = _FakeLedger()
     trader = _trader(
@@ -292,3 +434,86 @@ def test_json_order_ledger_detects_existing_intent_and_corrupt_lines(tmp_path) -
     ledger_path.write_text("{bad json\n", encoding="utf-8")
     with pytest.raises(ValueError, match="corrupt order ledger"):
         ledger.has_intent("strategy:market:up:1")
+
+
+def test_json_order_ledger_risk_snapshot_counts_open_and_exposure(tmp_path) -> None:
+    ledger_path = tmp_path / "order-ledger.jsonl"
+    ledger = JsonOrderLedger(str(ledger_path))
+
+    for intent_id, market, strategy in [
+        ("strategy:market-a:up:1", "market-a", "strategy"),
+        ("strategy:market-b:up:1", "market-b", "strategy"),
+    ]:
+        ledger.record_intent(
+            OrderIntent(
+                id=intent_id,
+                strategy=strategy,
+                market_slug=market,
+                token_id="token",
+                direction="up",
+                side="BUY",
+                amount_usd=5.0,
+                max_price=0.60,
+                created_at_ms=123,
+            )
+        )
+    ledger.record_event(
+        OrderLedgerEvent(
+            event="order_submitted",
+            intent_id="strategy:market-a:up:1",
+            timestamp_ms=124,
+            status="submitted",
+        )
+    )
+    ledger.record_event(
+        OrderLedgerEvent(
+            event="order_cancelled",
+            intent_id="strategy:market-b:up:1",
+            timestamp_ms=125,
+            status="cancelled",
+        )
+    )
+    ledger.record_intent(
+        OrderIntent(
+            id="strategy:market-c:up:1",
+            strategy="strategy",
+            market_slug="market-c",
+            token_id="token",
+            direction="up",
+            side="BUY",
+            amount_usd=5.0,
+            max_price=0.60,
+            created_at_ms=123,
+        )
+    )
+    ledger.record_event(
+        OrderLedgerEvent(
+            event="order_filled",
+            intent_id="strategy:market-c:up:1",
+            timestamp_ms=126,
+            status="filled",
+        )
+    )
+
+    snapshot = ledger.risk_snapshot()
+
+    assert snapshot["open_orders"] == 1
+    assert snapshot["market_exposure"] == {"market-a": 5.0}
+    assert snapshot["strategy_exposure"] == {"strategy": 5.0}
+    assert snapshot["total_notional"] == 5.0
+
+
+def test_json_order_ledger_maps_order_ids_to_intents(tmp_path) -> None:
+    ledger_path = tmp_path / "order-ledger.jsonl"
+    ledger = JsonOrderLedger(str(ledger_path))
+    ledger.record_event(
+        OrderLedgerEvent(
+            event="order_submitted",
+            intent_id="strategy:market:up:1",
+            timestamp_ms=124,
+            status="submitted",
+            order_id="order-1",
+        )
+    )
+
+    assert ledger.intent_ids_by_order_id() == {"order-1": "strategy:market:up:1"}
