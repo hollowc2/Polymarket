@@ -64,6 +64,23 @@ class JsonOrderLedger:
             }
         )
 
+    def has_intent(self, intent_id: str) -> bool:
+        if not os.path.exists(self.path):
+            return False
+
+        with open(self.path, encoding="utf-8") as f:
+            for line_no, line in enumerate(f, start=1):
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError as e:
+                    raise ValueError(f"corrupt order ledger at line {line_no}: {e}") from e
+                if record.get("type") == "order_intent" and record.get("intent", {}).get("id") == intent_id:
+                    return True
+        return False
+
     def _append(self, record: dict[str, Any]) -> None:
         directory = os.path.dirname(self.path)
         if directory:

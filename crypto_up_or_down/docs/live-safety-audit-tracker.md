@@ -13,7 +13,7 @@ Status legend:
 
 ## Current Focus
 
-- `[~]` Next recommended slice: ledger-backed duplicate/open-order reconciliation.
+- `[~]` Next recommended slice: startup reconciliation for open/recent CLOB orders.
 
 ## Phase 0 - Audit Review And Tracking
 
@@ -38,8 +38,8 @@ Status legend:
 
 - `[x]` Add append-only order intent/result ledger or minimal atomic JSON ledger.
 - `[x]` Persist intent before submit and exchange order id immediately after submit.
-- `[~]` Add idempotency key per strategy, market, direction, and window.
-- `[~]` Add tests for duplicate submit and corrupt ledger/state handling.
+- `[x]` Add idempotency key per strategy, market, direction, and window.
+- `[x]` Add tests for duplicate submit and corrupt ledger/state handling.
 
 ## Phase 4 - Startup Reconciliation
 
@@ -82,6 +82,7 @@ Status legend:
 - 2026-06-29: Phase 5 first slice complete. Added central live FOK risk guard for `LIVE_KILL_SWITCH`, `LIVE_KILL_SWITCH_FILE`, `MAX_LIVE_ORDER_USD`, and `MAX_LIVE_ORDER_PRICE`, all before ledger write or CLOB submit. Added focused tests. Remaining Phase 5 work: ledger/account-backed open-order, per-market, per-strategy, aggregate exposure, and stale quote enforcement.
 - 2026-06-29: Broad verification passed. `uv run pytest -q` returned `111 passed`; `uv run ruff check packages tests scripts/bots/impulse_momentum_bot.py` returned `All checks passed!` with `UV_CACHE_DIR=/tmp/uv-cache RUFF_CACHE_DIR=/tmp/ruff-cache`.
 - 2026-06-29: Commit checkpoint prepared on branch `feat/impulse-momentum-bot` for the first live-safety audit implementation slice. Scope: tracker, baseline test fixes, live FOK fail-closed semantics, JSONL order ledger, live confirmation gate, and first central live risk guards.
+- 2026-06-29: Phase 3 duplicate-idempotency slice complete. `JsonOrderLedger.has_intent()` now rejects duplicate strategy/market/direction/window intents and fails closed on corrupt JSONL before signing/submitting live FOK orders. Added duplicate-submit and corrupt-ledger tests. Verified `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_live_trader_fok.py -q`, `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q`, and targeted Ruff pass with `/tmp` caches.
 
 ## Resume Notes
 

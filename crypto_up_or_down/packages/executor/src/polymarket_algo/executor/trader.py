@@ -1861,6 +1861,14 @@ class LiveTrader:
             max_price=entry_price,
             created_at_ms=executed_at,
         )
+        try:
+            if self._order_ledger.has_intent(intent.id):
+                print(f"[LIVE] Order rejected: duplicate order intent {intent.id}")
+                return None
+        except Exception as e:
+            print(f"[LIVE] Order rejected: could not read order ledger: {e}")
+            return None
+
         order_id = None
         order_status = "pending"
         execution_price = entry_price

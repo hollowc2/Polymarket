@@ -37,10 +37,23 @@ class _FakeClient:
 
 
 class _FakeLedger:
-    def __init__(self, *, intent_error: Exception | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        intent_error: Exception | None = None,
+        existing_intents: set[str] | None = None,
+        read_error: Exception | None = None,
+    ) -> None:
         self.intent_error = intent_error
+        self.existing_intents = existing_intents or set()
+        self.read_error = read_error
         self.intents = []
         self.events = []
+
+    def has_intent(self, intent_id: str) -> bool:
+        if self.read_error is not None:
+            raise self.read_error
+        return intent_id in self.existing_intents
 
     def record_intent(self, intent) -> None:
         if self.intent_error is not None:
@@ -135,6 +148,23 @@ def test_live_fok_rejected_or_malformed_response_returns_none(response: dict) ->
 def test_live_fok_intent_persist_failure_returns_none_before_submit() -> None:
     client = _FakeClient()
     trader = _trader(client=client, ledger=_FakeLedger(intent_error=OSError("disk full")))
+
+    assert trader.place_bet(_market(), "up", 5.0, 0.9, 3) is None
+    assert client.post_count == 0
+
+
+def test_live_fok_duplicate_intent_returns_none_before_submit() -> None:
+    client = _FakeClient()
+    intent_id = "streak:btc-updown-5m-1771051500:up:1771051500"
+    trader = _trader(client=client, ledger=_FakeLedger(existing_intents={intent_id}))
+
+    assert trader.place_bet(_market(), "up", 5.0, 0.9, 3) is None
+    assert client.post_count == 0
+
+
+def test_live_fok_corrupt_ledger_returns_none_before_submit() -> None:
+    client = _FakeClient()
+    trader = _trader(client=client, ledger=_FakeLedger(read_error=ValueError("corrupt ledger")))
 
     assert trader.place_bet(_market(), "up", 5.0, 0.9, 3) is None
     assert client.post_count == 0
@@ -246,3 +276,19 @@ def test_json_order_ledger_appends_intent_and_events(tmp_path) -> None:
     assert records[1]["type"] == "order_event"
     assert records[1]["event"] == "order_unknown"
     assert records[1]["status"] == "unknown"
+
+
+def test_json_order_ledger_detects_existing_intent_and_corrupt_lines(tmp_path) -> None:
+    ledger_path = tmp_path / "order-ledger.jsonl"
+    ledger_path.write_text(
+        '{"type":"order_intent","intent":{"id":"strategy:market:up:1"}}\n',
+        encoding="utf-8",
+    )
+
+    ledger = JsonOrderLedger(str(ledger_path))
+    assert ledger.has_intent("strategy:market:up:1") is True
+    assert ledger.has_intent("strategy:market:down:1") is False
+
+    ledger_path.write_text("{bad json\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="corrupt order ledger"):
+        ledger.has_intent("strategy:market:up:1")
