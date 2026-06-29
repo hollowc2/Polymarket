@@ -1671,6 +1671,15 @@ class LiveTrader:
 
         return True, "OK"
 
+    def _log_live_event(self, event: str, **fields: object) -> None:
+        record = {
+            "type": "live_execution",
+            "event": event,
+            "timestamp_ms": int(time.time() * 1000),
+            **fields,
+        }
+        print(json.dumps(record, sort_keys=True, separators=(",", ":"), default=str), flush=True)
+
     def _init_client(self):
         """Initialize py-clob-client with wallet credentials."""
         try:
@@ -1784,6 +1793,17 @@ class LiveTrader:
         payload: dict | None = None,
     ) -> None:
         try:
+            self._log_live_event(
+                event,
+                intent_id=intent.id,
+                order_id=order_id,
+                reason=reason,
+                status=status,
+                strategy=intent.strategy,
+                market_slug=intent.market_slug,
+                direction=intent.direction,
+                amount_usd=intent.amount_usd,
+            )
             self._order_ledger.record_event(
                 OrderLedgerEvent(
                     event=event,
@@ -1871,6 +1891,14 @@ class LiveTrader:
         is_valid, error_msg = self._validate_order(market, direction, amount)
         if not is_valid:
             print(f"[LIVE] Order rejected: {error_msg}")
+            self._log_live_event(
+                "live_order_rejected",
+                reason=error_msg,
+                stage="validation",
+                market_slug=market.slug,
+                direction=direction,
+                amount_usd=amount,
+            )
             return None
 
         precomputed_execution = kwargs.pop("precomputed_execution", None)
@@ -1895,6 +1923,16 @@ class LiveTrader:
         )
         if not risk_ok:
             print(f"[LIVE] Order rejected by risk guard: {risk_msg}")
+            self._log_live_event(
+                "live_order_rejected",
+                reason=risk_msg,
+                stage="risk",
+                market_slug=market.slug,
+                direction=direction,
+                amount_usd=amount,
+                strategy=strategy,
+                quote_fetched_at_ms=quote_fetched_at_ms,
+            )
             return None
 
         executed_at = int(time.time() * 1000)  # milliseconds
@@ -1912,9 +1950,29 @@ class LiveTrader:
         try:
             if self._order_ledger.has_intent(intent.id):
                 print(f"[LIVE] Order rejected: duplicate order intent {intent.id}")
+                self._log_live_event(
+                    "live_order_rejected",
+                    reason="duplicate order intent",
+                    stage="idempotency",
+                    intent_id=intent.id,
+                    market_slug=market.slug,
+                    direction=direction,
+                    amount_usd=amount,
+                    strategy=strategy,
+                )
                 return None
         except Exception as e:
             print(f"[LIVE] Order rejected: could not read order ledger: {e}")
+            self._log_live_event(
+                "live_order_rejected",
+                reason=str(e),
+                stage="ledger_read",
+                intent_id=intent.id,
+                market_slug=market.slug,
+                direction=direction,
+                amount_usd=amount,
+                strategy=strategy,
+            )
             return None
 
         order_id = None
@@ -1929,8 +1987,29 @@ class LiveTrader:
         try:
             try:
                 self._order_ledger.record_intent(intent)
+                self._log_live_event(
+                    "order_intent",
+                    intent_id=intent.id,
+                    status="pending",
+                    strategy=intent.strategy,
+                    market_slug=intent.market_slug,
+                    direction=intent.direction,
+                    amount_usd=intent.amount_usd,
+                    max_price=intent.max_price,
+                    quote_fetched_at_ms=quote_fetched_at_ms,
+                )
             except Exception as e:
                 print(f"[LIVE] Order rejected: could not persist order intent: {e}")
+                self._log_live_event(
+                    "live_order_rejected",
+                    reason=str(e),
+                    stage="ledger_write",
+                    intent_id=intent.id,
+                    market_slug=market.slug,
+                    direction=direction,
+                    amount_usd=amount,
+                    strategy=strategy,
+                )
                 return None
 
             # Create FOK market order
@@ -2461,6 +2540,12 @@ class LiveTrader:
                 intent_id = intent_ids_by_order_id.get(str(order_id), f"startup:{order_id}")
                 status = order.get("status", "").upper()
                 if status in {"FILLED", "MATCHED"}:
+                    self._log_live_event(
+                        "startup_order_filled",
+                        intent_id=intent_id,
+                        order_id=order_id,
+                        status="filled",
+                    )
                     self._order_ledger.record_event(
                         OrderLedgerEvent(
                             event="startup_order_filled",
@@ -2473,6 +2558,12 @@ class LiveTrader:
                     )
                     continue
                 if status in {"CANCELED", "CANCELLED", "EXPIRED"}:
+                    self._log_live_event(
+                        "startup_order_cancelled",
+                        intent_id=intent_id,
+                        order_id=order_id,
+                        status="cancelled",
+                    )
                     self._order_ledger.record_event(
                         OrderLedgerEvent(
                             event="startup_order_cancelled",
@@ -2488,6 +2579,12 @@ class LiveTrader:
                     continue
                 try:
                     self.client.cancel(order_id)
+                    self._log_live_event(
+                        "startup_order_cancelled",
+                        intent_id=intent_id,
+                        order_id=order_id,
+                        status="cancelled",
+                    )
                     self._order_ledger.record_event(
                         OrderLedgerEvent(
                             event="startup_order_cancelled",
@@ -2501,6 +2598,13 @@ class LiveTrader:
                 except Exception as e:
                     failed = True
                     print(f"[LIVE] Startup: failed to cancel order {order_id}: {e}")
+                    self._log_live_event(
+                        "startup_order_cancel_failed",
+                        intent_id=intent_id,
+                        order_id=order_id,
+                        reason=str(e),
+                        status="cancel_failed",
+                    )
                     self._order_ledger.record_event(
                         OrderLedgerEvent(
                             event="startup_order_cancel_failed",
@@ -2517,6 +2621,7 @@ class LiveTrader:
             return not failed
         except Exception as e:
             print(f"[LIVE] Startup cleanup error: {e}")
+            self._log_live_event("startup_reconciliation_failed", reason=str(e), status="failed")
             return False
 
     def cancel_all_open_orders(self) -> int:

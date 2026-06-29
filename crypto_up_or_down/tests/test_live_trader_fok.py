@@ -358,7 +358,7 @@ def test_live_startup_reconciliation_failed_cancel_blocks_new_orders() -> None:
     assert client.post_count == 0
 
 
-def test_live_fok_filled_status_returns_trade() -> None:
+def test_live_fok_filled_status_returns_trade(capsys: pytest.CaptureFixture[str]) -> None:
     ledger = _FakeLedger()
     trader = _trader(
         client=_FakeClient(response={"orderID": "order-1"}),
@@ -383,6 +383,14 @@ def test_live_fok_filled_status_returns_trade() -> None:
     assert trade.requested_amount == pytest.approx(10.0)
     assert len(ledger.intents) == 1
     assert [event.event for event in ledger.events] == ["order_submitted", "order_filled"]
+    structured_logs = [
+        json.loads(line)
+        for line in capsys.readouterr().out.splitlines()
+        if line.startswith("{") and '"type":"live_execution"' in line
+    ]
+    assert [record["event"] for record in structured_logs] == ["order_intent", "order_submitted", "order_filled"]
+    assert structured_logs[-1]["order_id"] == "order-1"
+    assert structured_logs[-1]["status"] == "filled"
 
 
 def test_json_order_ledger_appends_intent_and_events(tmp_path) -> None:

@@ -13,7 +13,7 @@ Status legend:
 
 ## Current Focus
 
-- `[~]` Next recommended slice: structured live order/risk/reconciliation logs, if needed before live enablement.
+- `[x]` Live-safety tracker complete.
 
 ## Phase 0 - Audit Review And Tracking
 
@@ -68,7 +68,7 @@ Status legend:
 
 ## Phase 8 - Observability
 
-- `[~]` Add structured order/risk/reconciliation/market-data logs.
+- `[x]` Add structured order/risk/reconciliation/market-data logs.
 - `[x]` Add Prometheus metrics for order status, unknowns, open orders, quote age, API errors, reconciliation, cancel failures, kill switch, and exposure.
 - `[x]` Add or update alerts after metrics exist.
 
@@ -89,6 +89,7 @@ Status legend:
 - 2026-06-29: Phase 8 alert slice complete in `/opt/monitoring/prometheus-alerts/cryptoupdown.yml`. Added alerts for unreadable order ledger, unresolved orders, cancel failures, active kill switch, unreadable health state, slow quote fetches, and API error increases. Verified `docker exec butterfly_prometheus promtool check rules /etc/prometheus/alerts/cryptoupdown.yml`, reloaded Prometheus, and confirmed the new CryptoUpDown rules are loaded via `/api/v1/rules`.
 - 2026-06-29: Integrated verification passed after all agent slices and local fixes: `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q` returned `134 passed`; `UV_CACHE_DIR=/tmp/uv-cache RUFF_CACHE_DIR=/tmp/ruff-cache uv run ruff check packages tests scripts/bots/impulse_momentum_bot.py scripts/grafana_exporter.py` returned `All checks passed!`.
 - 2026-06-29: Runtime deploy check complete. Rebuilt/restarted `impulse-momentum-bot`, restarted bind-mounted `grafana-exporter`, confirmed impulse bot startup logs, and confirmed exporter now exposes `polymarket_order_ledger_read_success`, `polymarket_live_kill_switch_active`, `polymarket_api_errors_total`, and `polymarket_health_read_success`; `polymarket_quote_age_sec` exists and will emit a sample after the next quote fetch.
+- 2026-06-29: Phase 8 structured logging slice complete. `LiveTrader` now emits compact JSON `live_execution` lines for live order intents, submitted/filled/cancelled/rejected/unknown/failed order lifecycle events, risk/validation/idempotency/ledger rejections, and startup reconciliation outcomes while preserving the durable JSONL order ledger. Verified `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_live_trader_fok.py -q` and `UV_CACHE_DIR=/tmp/uv-cache RUFF_CACHE_DIR=/tmp/ruff-cache uv run ruff check packages/executor/src/polymarket_algo/executor/trader.py tests/test_live_trader_fok.py`.
 
 ## Resume Notes
 
