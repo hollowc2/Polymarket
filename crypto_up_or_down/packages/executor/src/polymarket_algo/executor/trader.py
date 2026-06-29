@@ -8,11 +8,10 @@ from datetime import UTC, datetime
 
 from polymarket_algo.core.config import LOCAL_TZ, TIMEZONE_NAME, Config
 from polymarket_algo.executor.client import Market, PolymarketClient
+from polymarket_algo.executor.order_ledger import JsonOrderLedger, OrderIntent, OrderLedgerEvent
 from polymarket_algo.executor.resilience import (
     CircuitBreaker,
-    ErrorCategory,
     RateLimiter,
-    categorize_error,
     with_retry,
 )
 
@@ -1580,6 +1579,8 @@ class LiveTrader:
         Args:
             market_cache: Optional MarketDataCache for faster orderbook lookups
         """
+        self._validate_live_mode_config()
+
         if not Config.PRIVATE_KEY:
             raise ValueError("PRIVATE_KEY not set in .env")
 
@@ -1588,9 +1589,48 @@ class LiveTrader:
             raise ValueError("FUNDER_ADDRESS required for proxy wallet (SIGNATURE_TYPE=1)")
 
         self._market_cache = market_cache
+        self._order_ledger = JsonOrderLedger(Config.ORDER_LEDGER_FILE)
         self._init_client()
         self._circuit_breaker = CircuitBreaker(name="polymarket-clob")
         self._rate_limiter = RateLimiter(requests_per_minute=60)
+
+    def _validate_live_mode_config(self) -> None:
+        if Config.APP_MODE not in {"paper", "live"}:
+            raise ValueError("APP_MODE must be 'paper' or 'live'")
+        if Config.APP_MODE != "live":
+            raise ValueError("LiveTrader requires APP_MODE=live")
+
+        wallet = Config.FUNDER_ADDRESS if Config.SIGNATURE_TYPE == 1 else Config.WALLET_ADDRESS
+        wallet = wallet.strip().lower()
+        if not wallet:
+            wallet_var = "FUNDER_ADDRESS" if Config.SIGNATURE_TYPE == 1 else "WALLET_ADDRESS"
+            raise ValueError(f"{wallet_var} required for live confirmation")
+
+        expected = f"crypto_up_or_down:{wallet}"
+        if Config.LIVE_CONFIRM.strip().lower() != expected:
+            raise ValueError(f"LIVE_CONFIRM must equal {expected}")
+
+    def _check_live_risk_guard(
+        self,
+        market: Market,
+        direction: str,
+        amount: float,
+        entry_price: float,
+    ) -> tuple[bool, str]:
+        if Config.LIVE_KILL_SWITCH:
+            return False, "LIVE_KILL_SWITCH active"
+
+        kill_file = Config.LIVE_KILL_SWITCH_FILE.strip()
+        if kill_file and os.path.exists(kill_file):
+            return False, f"LIVE_KILL_SWITCH_FILE present: {kill_file}"
+
+        if Config.MAX_LIVE_ORDER_USD > 0 and amount > Config.MAX_LIVE_ORDER_USD:
+            return False, f"Order size ${amount:.2f} exceeds MAX_LIVE_ORDER_USD ${Config.MAX_LIVE_ORDER_USD:.2f}"
+
+        if Config.MAX_LIVE_ORDER_PRICE > 0 and entry_price > Config.MAX_LIVE_ORDER_PRICE:
+            return False, f"{direction} price {entry_price:.3f} exceeds MAX_LIVE_ORDER_PRICE {Config.MAX_LIVE_ORDER_PRICE:.3f}"
+
+        return True, "OK"
 
     def _init_client(self):
         """Initialize py-clob-client with wallet credentials."""
@@ -1694,6 +1734,31 @@ class LiveTrader:
 
         return True, ""
 
+    def _record_order_event(
+        self,
+        intent: OrderIntent,
+        event: str,
+        status: str,
+        *,
+        order_id: str | None = None,
+        reason: str = "",
+        payload: dict | None = None,
+    ) -> None:
+        try:
+            self._order_ledger.record_event(
+                OrderLedgerEvent(
+                    event=event,
+                    intent_id=intent.id,
+                    timestamp_ms=int(time.time() * 1000),
+                    status=status,
+                    order_id=order_id,
+                    reason=reason,
+                    payload=payload,
+                )
+            )
+        except Exception as e:
+            print(f"[ledger] Warning: failed to record {event}: {e}")
+
     def _get_order_status(self, order_id: str, max_attempts: int = 5, poll_interval: float = 0.5) -> dict:
         """Poll for order status until filled or timeout.
 
@@ -1778,8 +1843,24 @@ class LiveTrader:
         entry_price = market.up_price if direction == "up" else market.down_price
         if entry_price <= 0:
             entry_price = 0.5
+        risk_ok, risk_msg = self._check_live_risk_guard(market, direction, amount, entry_price)
+        if not risk_ok:
+            print(f"[LIVE] Order rejected by risk guard: {risk_msg}")
+            return None
 
         executed_at = int(time.time() * 1000)  # milliseconds
+        strategy = str(kwargs.get("strategy", "streak"))
+        intent = OrderIntent(
+            id=f"{strategy}:{market.slug}:{direction}:{market.timestamp}",
+            strategy=strategy,
+            market_slug=market.slug,
+            token_id=token_id,
+            direction=direction,
+            side="BUY",
+            amount_usd=amount,
+            max_price=entry_price,
+            created_at_ms=executed_at,
+        )
         order_id = None
         order_status = "pending"
         execution_price = entry_price
@@ -1790,6 +1871,12 @@ class LiveTrader:
         fee_pct = PolymarketClient.calculate_fee(entry_price, fee_rate_bps)
 
         try:
+            try:
+                self._order_ledger.record_intent(intent)
+            except Exception as e:
+                print(f"[LIVE] Order rejected: could not persist order intent: {e}")
+                return None
+
             # Create FOK market order
             # For BUY orders, amount is in USD (how much to spend)
             market_order = self.MarketOrderArgs(
@@ -1804,8 +1891,37 @@ class LiveTrader:
             response = self.client.post_order(signed_order, self.OrderType.FOK)  # type: ignore[invalid-argument-type]
 
             resp_dict: dict = response if isinstance(response, dict) else {}
-            order_id = resp_dict.get("orderID", resp_dict.get("id", "unknown"))
+            if resp_dict.get("success") is False or resp_dict.get("error"):
+                print(f"[LIVE] Order rejected by CLOB: {resp_dict}")
+                self._record_order_event(
+                    intent,
+                    "order_rejected",
+                    "rejected",
+                    reason=str(resp_dict.get("error", "CLOB rejected order")),
+                    payload=resp_dict,
+                )
+                return None
+
+            order_id = resp_dict.get("orderID") or resp_dict.get("id")
+            if not order_id or order_id == "unknown":
+                print(f"[LIVE] Order rejected: missing order id in CLOB response: {resp_dict}")
+                self._record_order_event(
+                    intent,
+                    "order_rejected",
+                    "rejected",
+                    reason="missing order id in CLOB response",
+                    payload=resp_dict,
+                )
+                return None
+
             order_status = "submitted"
+            self._record_order_event(
+                intent,
+                "order_submitted",
+                order_status,
+                order_id=order_id,
+                payload=resp_dict,
+            )
 
             # Log based on strategy type
             if kwargs.get("strategy") == "copytrade":
@@ -1821,30 +1937,52 @@ class LiveTrader:
                 )
 
             # Poll for order status (FOK should resolve quickly)
-            if order_id and not order_id.startswith("FAILED"):
-                status_result = self._get_order_status(order_id)
-                order_status = status_result["status"]
+            status_result = self._get_order_status(order_id)
+            order_status = status_result["status"]
 
-                if order_status == "filled":
-                    filled_amount = status_result["filled_size"] * status_result["avg_price"]
-                    execution_price = status_result["avg_price"]
-                    print(f"[LIVE] Order filled: {status_result['filled_size']:.2f} shares @ {execution_price:.3f}")
-                elif order_status == "cancelled":
-                    print("[LIVE] Order cancelled (FOK not filled)")
-                    return None
-                else:
-                    print(f"[LIVE] Order status: {order_status}")
+            if order_status == "filled":
+                filled_amount = status_result["filled_size"] * status_result["avg_price"]
+                execution_price = status_result["avg_price"]
+                print(f"[LIVE] Order filled: {status_result['filled_size']:.2f} shares @ {execution_price:.3f}")
+                self._record_order_event(
+                    intent,
+                    "order_filled",
+                    "filled",
+                    order_id=order_id,
+                    payload=status_result,
+                )
+            elif order_status == "cancelled":
+                print("[LIVE] Order cancelled (FOK not filled)")
+                self._record_order_event(
+                    intent,
+                    "order_cancelled",
+                    "cancelled",
+                    order_id=order_id,
+                    payload=status_result,
+                )
+                return None
+            else:
+                print(f"[LIVE] Order status unresolved for FOK order: {order_status}")
+                self._record_order_event(
+                    intent,
+                    "order_unknown",
+                    "unknown",
+                    order_id=order_id,
+                    reason=f"unresolved FOK status: {order_status}",
+                    payload=status_result,
+                )
+                return None
 
         except Exception as e:
             print(f"[LIVE] Order failed: {e}")
-            order_id = f"FAILED:{e}"
-            order_status = "failed"
-
-            # Categorize the error
-            category = categorize_error(e)
-            if category == ErrorCategory.FATAL:
-                print(f"[LIVE] Fatal error (not retryable): {e}")
-                return None
+            self._record_order_event(
+                intent,
+                "order_failed",
+                "failed",
+                order_id=order_id,
+                reason=str(e),
+            )
+            return None
 
         shares_bought = filled_amount / execution_price if execution_price > 0 else 0.0
         fee_pct = PolymarketClient.calculate_fee(execution_price, fee_rate_bps)
@@ -1871,6 +2009,7 @@ class LiveTrader:
             requested_amount=amount,
             price_at_signal=entry_price,
             price_at_execution=execution_price,
+            order_status=order_status,
             **kwargs,  # pass copytrade fields
         )
 

@@ -74,8 +74,8 @@ class ThreeBarMoMoStrategy:
         # Vol spike gate: veto signals when current bar volume is an outlier vs rolling baseline
         if max_vol_spike > 0:
             vol_ma = volumes.rolling(vol_spike_lookback, min_periods=vol_spike_lookback // 2).mean()
-            vol_spike_ok = (volumes / vol_ma.replace(0, float("nan"))) <= max_vol_spike
-            vol_spike_ok = vol_spike_ok.fillna(True)
+            vol_spike_ratio = volumes / vol_ma.replace(0, float("nan"))
+            vol_spike_ok = vol_spike_ratio.isna() | (vol_spike_ratio <= max_vol_spike)
         else:
             vol_spike_ok = pd.Series(True, index=candles.index)
 

@@ -43,12 +43,15 @@ class Config:
     ENTRY_SECONDS_BEFORE: int = int(os.getenv("ENTRY_SECONDS_BEFORE", "30"))
 
     # Mode
+    APP_MODE: str = os.getenv("APP_MODE", "paper").lower()
+    LIVE_CONFIRM: str = os.getenv("LIVE_CONFIRM", "")
     PAPER_TRADE: bool = os.getenv("PAPER_TRADE", "true").lower() == "true"
 
     # Logging
     LOG_FILE: str = os.getenv("LOG_FILE", "bot.log")
     TRADES_FILE: str = os.getenv("TRADES_FILE", "trades.json")
     HISTORY_FILE: str = os.getenv("HISTORY_FILE", "trade_history_full.json")
+    ORDER_LEDGER_FILE: str = os.getenv("ORDER_LEDGER_FILE", "order_ledger.jsonl")
 
     # Copytrade
     DATA_API = "https://data-api.polymarket.com"
@@ -86,6 +89,10 @@ class Config:
     MAX_CONSEC_LOSSES: int = int(os.getenv("MAX_CONSEC_LOSSES", "5"))
     PAPER_FOK_CANCEL_PROB: float = float(os.getenv("PAPER_FOK_CANCEL_PROB", "0.15"))
     PAPER_LATENCY_PENALTY_BPS: int = int(os.getenv("PAPER_LATENCY_PENALTY_BPS", "15"))
+    LIVE_KILL_SWITCH: bool = os.getenv("LIVE_KILL_SWITCH", "false").lower() in {"1", "true", "yes", "on"}
+    LIVE_KILL_SWITCH_FILE: str = os.getenv("LIVE_KILL_SWITCH_FILE", "")
+    MAX_LIVE_ORDER_USD: float = float(os.getenv("MAX_LIVE_ORDER_USD", "0"))  # 0 disables cap
+    MAX_LIVE_ORDER_PRICE: float = float(os.getenv("MAX_LIVE_ORDER_PRICE", "0.99"))  # 0 disables cap
 
     # Resilience settings
     CIRCUIT_BREAKER_THRESHOLD: int = int(os.getenv("CIRCUIT_BREAKER_THRESHOLD", "5"))
