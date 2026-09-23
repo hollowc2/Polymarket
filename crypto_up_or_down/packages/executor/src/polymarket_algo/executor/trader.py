@@ -8,11 +8,10 @@ from datetime import UTC, datetime
 
 from polymarket_algo.core.config import LOCAL_TZ, TIMEZONE_NAME, Config
 from polymarket_algo.executor.client import Market, PolymarketClient
+from polymarket_algo.executor.order_ledger import JsonOrderLedger, OrderIntent, OrderLedgerEvent
 from polymarket_algo.executor.resilience import (
     CircuitBreaker,
-    ErrorCategory,
     RateLimiter,
-    categorize_error,
     with_retry,
 )
 
@@ -222,8 +221,7 @@ class Trade:
             "fee_amount": self.fee_amount,
             "net_profit": self.net_profit,
         }
-        # Add force_exit_reason if applicable
-        if self.settlement_status == "force_exit":
+        if self.force_exit_reason:
             settlement["force_exit_reason"] = self.force_exit_reason
 
         # === CONTEXT ===
@@ -491,9 +489,12 @@ class TradingState:
             return False, f"Insufficient bankroll: ${self.bankroll:.2f} < ${bet_size:.2f} bet"
         if Config.MAX_CONSEC_LOSSES > 0:
             cl = 0
+            today = datetime.now(UTC).date()
             for t in reversed(self.trades):
-                if t.won is None:
+                if t.won is None or t.settled_at is None:
                     continue
+                if datetime.fromtimestamp(t.settled_at / 1000, tz=UTC).date() != today:
+                    break
                 if not t.won:
                     cl += 1
                 else:
@@ -561,19 +562,20 @@ class TradingState:
             trade.gross_payout = trade.shares_bought  # $1 per share on win
             trade.gross_profit = trade.gross_payout - trade.amount
 
-            # Apply fee to the profit (fee is on proceeds, not principal)
-            fee_pct = trade.fee_pct if trade.fee_pct > 0 else 0.0
-            trade.fee_amount = trade.gross_profit * fee_pct if trade.gross_profit > 0 else 0.0
-
+            trade.fee_amount = PolymarketClient.calculate_fee_amount(
+                trade.shares_bought, exec_price, trade.fee_rate_bps
+            )
             trade.net_profit = trade.gross_profit - trade.fee_amount
             trade.pnl = trade.net_profit
         else:
             # Loss: lose the entire amount
             trade.gross_payout = 0.0
             trade.gross_profit = -trade.amount
-            trade.fee_amount = 0.0  # No fee on losses
-            trade.net_profit = -trade.amount
-            trade.pnl = -trade.amount
+            trade.fee_amount = PolymarketClient.calculate_fee_amount(
+                trade.shares_bought, exec_price, trade.fee_rate_bps
+            )
+            trade.net_profit = -trade.amount - trade.fee_amount
+            trade.pnl = trade.net_profit
 
         self.daily_pnl += trade.pnl
         self.bankroll += trade.pnl
@@ -709,8 +711,7 @@ class TradingState:
                     "net_profit": settled_trade.net_profit,
                 }
 
-                # Add force_exit_reason if applicable
-                if settled_trade.settlement_status == "force_exit":
+                if settled_trade.force_exit_reason:
                     history[i]["settlement"]["force_exit_reason"] = settled_trade.force_exit_reason
 
                 # Update position.shares if it was calculated during settlement
@@ -874,17 +875,17 @@ class TradingState:
                 shares = trade.amount / exec_price if exec_price > 0 else 0
 
                 # Expected value = (prob of win * win payout) + (prob of lose * lose payout)
-                # Win payout = shares - amount - fees
-                # Lose payout = -amount
+                # Win payout = shares - amount - entry fee
+                # Lose payout = -amount - entry fee
                 win_prob = current_price
                 lose_prob = 1 - current_price
 
                 gross_win = shares - trade.amount
-                fee_on_win = gross_win * trade.fee_pct if gross_win > 0 else 0
-                net_win = gross_win - fee_on_win
+                entry_fee = PolymarketClient.calculate_fee_amount(shares, exec_price, trade.fee_rate_bps)
+                net_win = gross_win - entry_fee
 
                 # Unrealized PnL = expected value
-                trade.unrealized_pnl = (win_prob * net_win) + (lose_prob * (-trade.amount))
+                trade.unrealized_pnl = (win_prob * net_win) + (lose_prob * (-trade.amount - entry_fee))
 
             except Exception as e:
                 print(f"[unrealized] Error updating {trade.market_slug}: {e}")
@@ -1040,20 +1041,19 @@ class TradingState:
             won = direction == outcome
             amount = position.get("amount", 0)
             exec_price = execution.get("fill_price") or execution.get("entry_price", 0.5)
-            fee_pct = fees.get("pct", 0)
+            fee_rate_bps = fees.get("rate_bps", 0)
 
             shares_bought = amount / exec_price if exec_price > 0 else 0
+            fee_amount = PolymarketClient.calculate_fee_amount(shares_bought, exec_price, fee_rate_bps)
 
             if won:
                 gross_payout = shares_bought  # $1 per share
                 gross_profit = gross_payout - amount
-                fee_amount = gross_profit * fee_pct if gross_profit > 0 else 0
                 net_profit = gross_profit - fee_amount
             else:
                 gross_payout = 0.0
                 gross_profit = -amount
-                fee_amount = 0.0
-                net_profit = -amount
+                net_profit = -amount - fee_amount
 
             # Update settlement in nested structure
             history[idx]["settlement"] = {
@@ -1238,51 +1238,45 @@ class PaperTrader:
                 else:
                     # Book walk returned 0 — either API failure or no depth to fill.
                     # Fall back to CLOB best ask (the cheapest live price you could hit).
-                    print(f"[PAPER] ⚠️  Orderbook walk returned no price — trying CLOB best ask fallback")
-                    ask_fallback = self._client.get_price(token_id, "BUY")
+                    print("[PAPER] ⚠️  Orderbook walk returned no price — trying CLOB best ask fallback")
+                    ask_fallback = self._client.get_price(token_id, "SELL")
                     if ask_fallback and ask_fallback > 0:
                         execution_price = ask_fallback
                         print(f"[PAPER] Using CLOB best ask: {execution_price:.4f}")
                     else:
                         # No price data at all — a live FOK order would cancel here
-                        print(f"[PAPER] ❌ Order cancelled: no price data available (FOK would cancel)")
+                        print("[PAPER] ❌ Order cancelled: no price data available (FOK would cancel)")
                         return None
             except Exception as e:
                 print(f"[PAPER] Warning: Could not fetch orderbook: {e}")
+                fill_pct = 0.0
                 # Try CLOB best ask as fallback before giving up
-                ask_fallback = self._client.get_price(token_id, "BUY") if token_id else None
+                ask_fallback = self._client.get_price(token_id, "SELL") if token_id else None
                 if ask_fallback and ask_fallback > 0:
                     execution_price = ask_fallback
                     print(f"[PAPER] Using CLOB best ask as fallback: {execution_price:.4f}")
                 else:
-                    print(f"[PAPER] ❌ Order cancelled: could not determine execution price (FOK would cancel)")
+                    print("[PAPER] ❌ Order cancelled: could not determine execution price (FOK would cancel)")
                     return None
 
-        # Simulate FOK cancel when book has zero fillable depth
-        if fill_pct == 0.0:
-            print(f"[PAPER] ❌ Order cancelled: zero fillable depth (FOK would cancel)")
-            return None
-
-        # Synthetic FOK cancel: thin markets cancel more often in live
-        import random as _random
-        if 0 < market_volume < 100 and _random.random() < Config.PAPER_FOK_CANCEL_PROB:
-            print(f"[PAPER] ❌ Synthetic FOK cancel (thin market vol=${market_volume:.0f}, prob={Config.PAPER_FOK_CANCEL_PROB:.0%})")
+        if fill_pct < 100.0:
+            print(f"[PAPER] ❌ Order cancelled: only {fill_pct:.1f}% fillable (FOK requires 100%)")
             return None
 
         # Execution price must be resolved at this point
         if execution_price <= 0:
-            print(f"[PAPER] ❌ Order cancelled: no valid execution price resolved")
+            print("[PAPER] ❌ Order cancelled: no valid execution price resolved")
             return None
 
         # Price-impact penalty: your own order moves the ask up in thin markets
         filled_amount_pre = amount * (fill_pct / 100.0)
-        if market_volume > 0 and spread > 0:
+        if not precomputed_execution and market_volume > 0 and spread > 0:
             price_impact = (filled_amount_pre / market_volume) * spread
             if price_impact > 0:
                 execution_price = min(0.99, execution_price + price_impact)
 
         # Live latency penalty: network + API round-trip degrades fills vs paper snapshot
-        if Config.PAPER_LATENCY_PENALTY_BPS > 0:
+        if not precomputed_execution and Config.PAPER_LATENCY_PENALTY_BPS > 0:
             execution_price = min(0.99, execution_price * (1 + Config.PAPER_LATENCY_PENALTY_BPS / 10_000))
 
         fee_pct = self._client.calculate_fee(execution_price, fee_rate_bps)
@@ -1292,10 +1286,9 @@ class PaperTrader:
         if price_at_signal > 0:
             price_movement_pct = ((execution_price - price_at_signal) / price_at_signal) * 100
 
-        # Adjust amount for partial fill
-        filled_amount = amount * (fill_pct / 100.0)
-        if fill_pct < 100.0:
-            print(f"[PAPER] ⚠️  Partial fill: {fill_pct:.1f}% of ${amount:.2f} = ${filled_amount:.2f}")
+        filled_amount = amount
+        shares_bought = filled_amount / execution_price
+        entry_fee = PolymarketClient.calculate_fee_amount(shares_bought, execution_price, fee_rate_bps)
 
         # === PATTERN ANALYSIS DATA ===
         # Time-based patterns
@@ -1335,6 +1328,8 @@ class PaperTrader:
             # Realistic simulation fields
             fee_rate_bps=fee_rate_bps,
             fee_pct=fee_pct,
+            fee_amount=entry_fee,
+            shares_bought=shares_bought,
             spread=spread,
             slippage_pct=slippage_pct,
             execution_price=execution_price,
@@ -1494,7 +1489,7 @@ class PaperTrader:
             if spread and spread[1] > 0:
                 _bid, current_ask = spread
             else:
-                current_ask_maybe = self._client.get_price(token_id, side="BUY")
+                current_ask_maybe = self._client.get_price(token_id, side="SELL")
                 current_ask = current_ask_maybe if current_ask_maybe else 1.0
         except Exception:
             return False
@@ -1519,6 +1514,8 @@ class PaperTrader:
             trade.order_status = "filled"
             fee_rate_bps = trade.fee_rate_bps or 200
             trade.fee_pct = self._client.calculate_fee(trade.limit_price, fee_rate_bps)
+            trade.shares_bought = trade.amount / trade.limit_price
+            trade.fee_amount = self._client.calculate_fee_amount(trade.shares_bought, trade.limit_price, fee_rate_bps)
             return True
         return False
 
@@ -1582,6 +1579,8 @@ class LiveTrader:
         Args:
             market_cache: Optional MarketDataCache for faster orderbook lookups
         """
+        self._validate_live_mode_config()
+
         if not Config.PRIVATE_KEY:
             raise ValueError("PRIVATE_KEY not set in .env")
 
@@ -1590,9 +1589,96 @@ class LiveTrader:
             raise ValueError("FUNDER_ADDRESS required for proxy wallet (SIGNATURE_TYPE=1)")
 
         self._market_cache = market_cache
+        self._order_ledger = JsonOrderLedger(Config.ORDER_LEDGER_FILE)
         self._init_client()
         self._circuit_breaker = CircuitBreaker(name="polymarket-clob")
         self._rate_limiter = RateLimiter(requests_per_minute=60)
+        self._startup_reconciliation_ok = self.reconcile_startup_orders()
+
+    def _validate_live_mode_config(self) -> None:
+        if Config.APP_MODE not in {"paper", "live"}:
+            raise ValueError("APP_MODE must be 'paper' or 'live'")
+        if Config.APP_MODE != "live":
+            raise ValueError("LiveTrader requires APP_MODE=live")
+
+        wallet = Config.FUNDER_ADDRESS if Config.SIGNATURE_TYPE == 1 else Config.WALLET_ADDRESS
+        wallet = wallet.strip().lower()
+        if not wallet:
+            wallet_var = "FUNDER_ADDRESS" if Config.SIGNATURE_TYPE == 1 else "WALLET_ADDRESS"
+            raise ValueError(f"{wallet_var} required for live confirmation")
+
+        expected = f"crypto_up_or_down:{wallet}"
+        if Config.LIVE_CONFIRM.strip().lower() != expected:
+            raise ValueError(f"LIVE_CONFIRM must equal {expected}")
+
+    def _check_live_risk_guard(
+        self,
+        market: Market,
+        direction: str,
+        amount: float,
+        entry_price: float,
+        strategy: str,
+        quote_fetched_at_ms: int | None = None,
+    ) -> tuple[bool, str]:
+        if not getattr(self, "_startup_reconciliation_ok", True):
+            return False, "startup reconciliation incomplete"
+
+        if Config.LIVE_KILL_SWITCH:
+            return False, "LIVE_KILL_SWITCH active"
+
+        kill_file = Config.LIVE_KILL_SWITCH_FILE.strip()
+        if kill_file and os.path.exists(kill_file):
+            return False, f"LIVE_KILL_SWITCH_FILE present: {kill_file}"
+
+        if Config.MAX_LIVE_ORDER_USD > 0 and amount > Config.MAX_LIVE_ORDER_USD:
+            return False, f"Order size ${amount:.2f} exceeds MAX_LIVE_ORDER_USD ${Config.MAX_LIVE_ORDER_USD:.2f}"
+
+        if Config.MAX_LIVE_ORDER_PRICE > 0 and entry_price > Config.MAX_LIVE_ORDER_PRICE:
+            return False, f"{direction} price {entry_price:.3f} exceeds MAX_LIVE_ORDER_PRICE {Config.MAX_LIVE_ORDER_PRICE:.3f}"
+
+        if Config.MAX_LIVE_QUOTE_AGE_SECONDS > 0:
+            if quote_fetched_at_ms is None:
+                return False, "quote timestamp missing"
+            quote_age = (int(time.time() * 1000) - quote_fetched_at_ms) / 1000
+            if quote_age > Config.MAX_LIVE_QUOTE_AGE_SECONDS:
+                return False, f"quote age {quote_age:.1f}s exceeds MAX_LIVE_QUOTE_AGE_SECONDS"
+
+        if any(
+            cap > 0
+            for cap in (
+                Config.MAX_LIVE_OPEN_ORDERS,
+                Config.MAX_LIVE_MARKET_EXPOSURE_USD,
+                Config.MAX_LIVE_STRATEGY_EXPOSURE_USD,
+                Config.MAX_LIVE_TOTAL_NOTIONAL_USD,
+            )
+        ):
+            try:
+                snapshot = self._order_ledger.risk_snapshot()
+            except Exception as e:
+                return False, f"could not read order ledger risk snapshot: {e}"
+            market_exposure = float(snapshot["market_exposure"].get(market.slug, 0.0))
+            strategy_exposure = float(snapshot["strategy_exposure"].get(strategy, 0.0))
+            total_notional = float(snapshot["total_notional"])
+
+            if Config.MAX_LIVE_OPEN_ORDERS > 0 and int(snapshot["open_orders"]) >= Config.MAX_LIVE_OPEN_ORDERS:
+                return False, f"MAX_LIVE_OPEN_ORDERS reached ({Config.MAX_LIVE_OPEN_ORDERS})"
+            if Config.MAX_LIVE_MARKET_EXPOSURE_USD > 0 and market_exposure + amount > Config.MAX_LIVE_MARKET_EXPOSURE_USD:
+                return False, "market exposure would exceed MAX_LIVE_MARKET_EXPOSURE_USD"
+            if Config.MAX_LIVE_STRATEGY_EXPOSURE_USD > 0 and strategy_exposure + amount > Config.MAX_LIVE_STRATEGY_EXPOSURE_USD:
+                return False, "strategy exposure would exceed MAX_LIVE_STRATEGY_EXPOSURE_USD"
+            if Config.MAX_LIVE_TOTAL_NOTIONAL_USD > 0 and total_notional + amount > Config.MAX_LIVE_TOTAL_NOTIONAL_USD:
+                return False, "total notional would exceed MAX_LIVE_TOTAL_NOTIONAL_USD"
+
+        return True, "OK"
+
+    def _log_live_event(self, event: str, **fields: object) -> None:
+        record = {
+            "type": "live_execution",
+            "event": event,
+            "timestamp_ms": int(time.time() * 1000),
+            **fields,
+        }
+        print(json.dumps(record, sort_keys=True, separators=(",", ":"), default=str), flush=True)
 
     def _init_client(self):
         """Initialize py-clob-client with wallet credentials."""
@@ -1696,6 +1782,42 @@ class LiveTrader:
 
         return True, ""
 
+    def _record_order_event(
+        self,
+        intent: OrderIntent,
+        event: str,
+        status: str,
+        *,
+        order_id: str | None = None,
+        reason: str = "",
+        payload: dict | None = None,
+    ) -> None:
+        try:
+            self._log_live_event(
+                event,
+                intent_id=intent.id,
+                order_id=order_id,
+                reason=reason,
+                status=status,
+                strategy=intent.strategy,
+                market_slug=intent.market_slug,
+                direction=intent.direction,
+                amount_usd=intent.amount_usd,
+            )
+            self._order_ledger.record_event(
+                OrderLedgerEvent(
+                    event=event,
+                    intent_id=intent.id,
+                    timestamp_ms=int(time.time() * 1000),
+                    status=status,
+                    order_id=order_id,
+                    reason=reason,
+                    payload=payload,
+                )
+            )
+        except Exception as e:
+            print(f"[ledger] Warning: failed to record {event}: {e}")
+
     def _get_order_status(self, order_id: str, max_attempts: int = 5, poll_interval: float = 0.5) -> dict:
         """Poll for order status until filled or timeout.
 
@@ -1769,10 +1891,17 @@ class LiveTrader:
         is_valid, error_msg = self._validate_order(market, direction, amount)
         if not is_valid:
             print(f"[LIVE] Order rejected: {error_msg}")
+            self._log_live_event(
+                "live_order_rejected",
+                reason=error_msg,
+                stage="validation",
+                market_slug=market.slug,
+                direction=direction,
+                amount_usd=amount,
+            )
             return None
 
-        # Precomputed execution data is only used by paper mode; discard if passed
-        kwargs.pop("precomputed_execution", None)
+        precomputed_execution = kwargs.pop("precomputed_execution", None)
 
         token_id = market.up_token_id if direction == "up" else market.down_token_id
         if token_id is None:
@@ -1780,8 +1909,72 @@ class LiveTrader:
         entry_price = market.up_price if direction == "up" else market.down_price
         if entry_price <= 0:
             entry_price = 0.5
+        strategy = str(kwargs.get("strategy", "streak"))
+        quote_fetched_at_ms = None
+        if isinstance(precomputed_execution, dict):
+            quote_fetched_at_ms = precomputed_execution.get("fetched_at_ms") or precomputed_execution.get("timestamp_ms")
+        risk_ok, risk_msg = self._check_live_risk_guard(
+            market,
+            direction,
+            amount,
+            entry_price,
+            strategy,
+            int(quote_fetched_at_ms) if quote_fetched_at_ms is not None else None,
+        )
+        if not risk_ok:
+            print(f"[LIVE] Order rejected by risk guard: {risk_msg}")
+            self._log_live_event(
+                "live_order_rejected",
+                reason=risk_msg,
+                stage="risk",
+                market_slug=market.slug,
+                direction=direction,
+                amount_usd=amount,
+                strategy=strategy,
+                quote_fetched_at_ms=quote_fetched_at_ms,
+            )
+            return None
 
         executed_at = int(time.time() * 1000)  # milliseconds
+        intent = OrderIntent(
+            id=f"{strategy}:{market.slug}:{direction}:{market.timestamp}",
+            strategy=strategy,
+            market_slug=market.slug,
+            token_id=token_id,
+            direction=direction,
+            side="BUY",
+            amount_usd=amount,
+            max_price=entry_price,
+            created_at_ms=executed_at,
+        )
+        try:
+            if self._order_ledger.has_intent(intent.id):
+                print(f"[LIVE] Order rejected: duplicate order intent {intent.id}")
+                self._log_live_event(
+                    "live_order_rejected",
+                    reason="duplicate order intent",
+                    stage="idempotency",
+                    intent_id=intent.id,
+                    market_slug=market.slug,
+                    direction=direction,
+                    amount_usd=amount,
+                    strategy=strategy,
+                )
+                return None
+        except Exception as e:
+            print(f"[LIVE] Order rejected: could not read order ledger: {e}")
+            self._log_live_event(
+                "live_order_rejected",
+                reason=str(e),
+                stage="ledger_read",
+                intent_id=intent.id,
+                market_slug=market.slug,
+                direction=direction,
+                amount_usd=amount,
+                strategy=strategy,
+            )
+            return None
+
         order_id = None
         order_status = "pending"
         execution_price = entry_price
@@ -1792,6 +1985,33 @@ class LiveTrader:
         fee_pct = PolymarketClient.calculate_fee(entry_price, fee_rate_bps)
 
         try:
+            try:
+                self._order_ledger.record_intent(intent)
+                self._log_live_event(
+                    "order_intent",
+                    intent_id=intent.id,
+                    status="pending",
+                    strategy=intent.strategy,
+                    market_slug=intent.market_slug,
+                    direction=intent.direction,
+                    amount_usd=intent.amount_usd,
+                    max_price=intent.max_price,
+                    quote_fetched_at_ms=quote_fetched_at_ms,
+                )
+            except Exception as e:
+                print(f"[LIVE] Order rejected: could not persist order intent: {e}")
+                self._log_live_event(
+                    "live_order_rejected",
+                    reason=str(e),
+                    stage="ledger_write",
+                    intent_id=intent.id,
+                    market_slug=market.slug,
+                    direction=direction,
+                    amount_usd=amount,
+                    strategy=strategy,
+                )
+                return None
+
             # Create FOK market order
             # For BUY orders, amount is in USD (how much to spend)
             market_order = self.MarketOrderArgs(
@@ -1806,8 +2026,37 @@ class LiveTrader:
             response = self.client.post_order(signed_order, self.OrderType.FOK)  # type: ignore[invalid-argument-type]
 
             resp_dict: dict = response if isinstance(response, dict) else {}
-            order_id = resp_dict.get("orderID", resp_dict.get("id", "unknown"))
+            if resp_dict.get("success") is False or resp_dict.get("error"):
+                print(f"[LIVE] Order rejected by CLOB: {resp_dict}")
+                self._record_order_event(
+                    intent,
+                    "order_rejected",
+                    "rejected",
+                    reason=str(resp_dict.get("error", "CLOB rejected order")),
+                    payload=resp_dict,
+                )
+                return None
+
+            order_id = resp_dict.get("orderID") or resp_dict.get("id")
+            if not order_id or order_id == "unknown":
+                print(f"[LIVE] Order rejected: missing order id in CLOB response: {resp_dict}")
+                self._record_order_event(
+                    intent,
+                    "order_rejected",
+                    "rejected",
+                    reason="missing order id in CLOB response",
+                    payload=resp_dict,
+                )
+                return None
+
             order_status = "submitted"
+            self._record_order_event(
+                intent,
+                "order_submitted",
+                order_status,
+                order_id=order_id,
+                payload=resp_dict,
+            )
 
             # Log based on strategy type
             if kwargs.get("strategy") == "copytrade":
@@ -1823,30 +2072,56 @@ class LiveTrader:
                 )
 
             # Poll for order status (FOK should resolve quickly)
-            if order_id and not order_id.startswith("FAILED"):
-                status_result = self._get_order_status(order_id)
-                order_status = status_result["status"]
+            status_result = self._get_order_status(order_id)
+            order_status = status_result["status"]
 
-                if order_status == "filled":
-                    filled_amount = status_result["filled_size"] * status_result["avg_price"]
-                    execution_price = status_result["avg_price"]
-                    print(f"[LIVE] Order filled: {status_result['filled_size']:.2f} shares @ {execution_price:.3f}")
-                elif order_status == "cancelled":
-                    print("[LIVE] Order cancelled (FOK not filled)")
-                    return None
-                else:
-                    print(f"[LIVE] Order status: {order_status}")
+            if order_status == "filled":
+                filled_amount = status_result["filled_size"] * status_result["avg_price"]
+                execution_price = status_result["avg_price"]
+                print(f"[LIVE] Order filled: {status_result['filled_size']:.2f} shares @ {execution_price:.3f}")
+                self._record_order_event(
+                    intent,
+                    "order_filled",
+                    "filled",
+                    order_id=order_id,
+                    payload=status_result,
+                )
+            elif order_status == "cancelled":
+                print("[LIVE] Order cancelled (FOK not filled)")
+                self._record_order_event(
+                    intent,
+                    "order_cancelled",
+                    "cancelled",
+                    order_id=order_id,
+                    payload=status_result,
+                )
+                return None
+            else:
+                print(f"[LIVE] Order status unresolved for FOK order: {order_status}")
+                self._record_order_event(
+                    intent,
+                    "order_unknown",
+                    "unknown",
+                    order_id=order_id,
+                    reason=f"unresolved FOK status: {order_status}",
+                    payload=status_result,
+                )
+                return None
 
         except Exception as e:
             print(f"[LIVE] Order failed: {e}")
-            order_id = f"FAILED:{e}"
-            order_status = "failed"
+            self._record_order_event(
+                intent,
+                "order_failed",
+                "failed",
+                order_id=order_id,
+                reason=str(e),
+            )
+            return None
 
-            # Categorize the error
-            category = categorize_error(e)
-            if category == ErrorCategory.FATAL:
-                print(f"[LIVE] Fatal error (not retryable): {e}")
-                return None
+        shares_bought = filled_amount / execution_price if execution_price > 0 else 0.0
+        fee_pct = PolymarketClient.calculate_fee(execution_price, fee_rate_bps)
+        fee_amount = PolymarketClient.calculate_fee_amount(shares_bought, execution_price, fee_rate_bps)
 
         return Trade(
             timestamp=market.timestamp,
@@ -1863,10 +2138,13 @@ class LiveTrader:
             # Realistic execution fields
             fee_rate_bps=fee_rate_bps,
             fee_pct=fee_pct,
+            fee_amount=fee_amount,
+            shares_bought=shares_bought,
             execution_price=execution_price,
             requested_amount=amount,
             price_at_signal=entry_price,
             price_at_execution=execution_price,
+            order_status=order_status,
             **kwargs,  # pass copytrade fields
         )
 
@@ -2238,24 +2516,115 @@ class LiveTrader:
             print(f"[LIVE] redeem_winning_position failed: {e}")
             return False
 
-    def cancel_all_open_orders(self) -> int:
+    def reconcile_startup_orders(self) -> bool:
         """Cancel all open orders on CLOB (call at startup for crash recovery).
 
-        Returns the number of orders cancelled.
+        Returns True only when every observed open order was cancelled.
         """
         try:
             all_orders = self.client.get_orders()
             # get_orders() returns a dict with a "data" key, or a list directly
             raw = all_orders.get("data", all_orders) if isinstance(all_orders, dict) else all_orders
-            orders = [o for o in (raw or []) if isinstance(o, dict) and o.get("status", "").upper() == "OPEN"]
-            for order in orders:
+            intent_ids_by_order_id = self._order_ledger.intent_ids_by_order_id()
+            orders = [
+                o
+                for o in (raw or [])
+                if isinstance(o, dict) and o.get("status", "").upper() in {"OPEN", "LIVE"}
+            ]
+            self._startup_reconciled_open_orders = len(orders)
+            failed = False
+            for order in raw or []:
+                if not isinstance(order, dict):
+                    continue
+                order_id = order.get("id") or order.get("orderID")
+                intent_id = intent_ids_by_order_id.get(str(order_id), f"startup:{order_id}")
+                status = order.get("status", "").upper()
+                if status in {"FILLED", "MATCHED"}:
+                    self._log_live_event(
+                        "startup_order_filled",
+                        intent_id=intent_id,
+                        order_id=order_id,
+                        status="filled",
+                    )
+                    self._order_ledger.record_event(
+                        OrderLedgerEvent(
+                            event="startup_order_filled",
+                            intent_id=intent_id,
+                            timestamp_ms=int(time.time() * 1000),
+                            status="filled",
+                            order_id=order_id,
+                            payload=order,
+                        )
+                    )
+                    continue
+                if status in {"CANCELED", "CANCELLED", "EXPIRED"}:
+                    self._log_live_event(
+                        "startup_order_cancelled",
+                        intent_id=intent_id,
+                        order_id=order_id,
+                        status="cancelled",
+                    )
+                    self._order_ledger.record_event(
+                        OrderLedgerEvent(
+                            event="startup_order_cancelled",
+                            intent_id=intent_id,
+                            timestamp_ms=int(time.time() * 1000),
+                            status="cancelled",
+                            order_id=order_id,
+                            payload=order,
+                        )
+                    )
+                    continue
+                if status not in {"OPEN", "LIVE"}:
+                    continue
                 try:
-                    self.client.cancel(order["id"])
+                    self.client.cancel(order_id)
+                    self._log_live_event(
+                        "startup_order_cancelled",
+                        intent_id=intent_id,
+                        order_id=order_id,
+                        status="cancelled",
+                    )
+                    self._order_ledger.record_event(
+                        OrderLedgerEvent(
+                            event="startup_order_cancelled",
+                            intent_id=intent_id,
+                            timestamp_ms=int(time.time() * 1000),
+                            status="cancelled",
+                            order_id=order_id,
+                            payload=order,
+                        )
+                    )
                 except Exception as e:
-                    print(f"[LIVE] Startup: failed to cancel order {order.get('id')}: {e}")
+                    failed = True
+                    print(f"[LIVE] Startup: failed to cancel order {order_id}: {e}")
+                    self._log_live_event(
+                        "startup_order_cancel_failed",
+                        intent_id=intent_id,
+                        order_id=order_id,
+                        reason=str(e),
+                        status="cancel_failed",
+                    )
+                    self._order_ledger.record_event(
+                        OrderLedgerEvent(
+                            event="startup_order_cancel_failed",
+                            intent_id=intent_id,
+                            timestamp_ms=int(time.time() * 1000),
+                            status="cancel_failed",
+                            order_id=order_id,
+                            reason=str(e),
+                            payload=order,
+                        )
+                    )
             if orders:
                 print(f"[LIVE] Startup: cancelled {len(orders)} orphaned open order(s)")
-            return len(orders)
+            return not failed
         except Exception as e:
             print(f"[LIVE] Startup cleanup error: {e}")
-            return 0
+            self._log_live_event("startup_reconciliation_failed", reason=str(e), status="failed")
+            return False
+
+    def cancel_all_open_orders(self) -> int:
+        ok = self.reconcile_startup_orders()
+        self._startup_reconciliation_ok = ok
+        return getattr(self, "_startup_reconciled_open_orders", 0) if ok else 0

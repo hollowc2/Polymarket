@@ -373,6 +373,9 @@ services:
   impulse-momentum-bot:
     <<: *bot-common
     container_name: polymarket-impulse-momentum-bot
+    volumes:
+      - /opt/polymarket/state:/app/state
+      - /opt/monitoring/alertmanager/secrets/cryptoupdown-webhook:/run/secrets/discord-webhook:ro
     command:
       - "uv"
       - "run"
@@ -387,16 +390,16 @@ services:
       - "120"
       - "--entry-tolerance-sec"
       - "30"
-      - "--amount"
-      - "5"
       - "--max-notional"
-      - "8"
+      - "0"
       - "--risk-pct"
-      - "8"
+      - "10"
       - "--max-spread"
       - "0.03"
       - "--min-ask-notional"
       - "30"
+      - "--max-entry-drift"
+      - "0.03"
       - "--stop-loss-pct"
       - "0.25"
       - "--exit-before-sec"
@@ -404,11 +407,12 @@ services:
     environment:
       PAPER_TRADE: "true"
       MAX_DAILY_BETS: "10000"  # Effectively unlimited; BTC 5m has at most 288 windows/day
-      MAX_DAILY_LOSS: "10"
+      MAX_DAILY_LOSS: "20"
       MAX_CONSEC_LOSSES: "5"
       TRADES_FILE: "/app/state/impulse-momentum-trades.json"
       HISTORY_FILE: "/app/state/impulse-momentum-history.json"
       LOG_FILE: "/app/state/impulse-momentum-bot.log"
+      DISCORD_STRATEGIES: "${DISCORD_STRATEGIES:-impulse_momentum}"
 
   # RETIRED 2026-06-05: pinbar-hl-5m-bot — HL-gated pin bar strategy retired.
   # pinbar-hl-5m-bot:
@@ -840,7 +844,7 @@ services:
       - "9099"
     environment: {}
     ports:
-      - "9099:9099"
+      - "127.0.0.1:9099:9099"
 
   # Grafana is already running on this host (port 3000).
   # Add the Infinity datasource + import monitoring/grafana/provisioning/dashboards/polymarket.json

@@ -1,4 +1,4 @@
-<img src="data/images/turlequant_small.png" align="right" height="64"/>
+<img src="data/images/turtlequant.png" align="right" height="64"/>
 
 # TurtleQuant
 
@@ -115,6 +115,15 @@ Binance data falls back through Bybit → OKX → Gate.io for geo-resilience.
 cp .env.example .env          # configure secrets on the VPS (never commit)
 docker compose up -d          # runs TurtleQuant in shadow mode (--shadow)
 ```
+
+Runtime state is outside this repo:
+
+| Path | Meaning |
+|------|---------|
+| `/opt/polymarket/app/turtlequant` | Source and compose files |
+| `/opt/turtlequant/state` | Active shadow-mode positions, history, and bot log |
+| `/opt/turtlequant/state/live-state` | Separate live-mode state when `docker-compose.live.yml` is used |
+| `/opt/polymarket/state` | Other `crypto_up_or_down` bot state, not TurtleQuant runtime state |
 
 State files (`*-positions.json`, `*-history.json`) persist in `/opt/turtlequant/state`. The history file includes `order`, `failed_order`, and `shadow_quote` events with bid/ask snapshots, slippage, fill ratio inputs, and partial-fill fields.
 
