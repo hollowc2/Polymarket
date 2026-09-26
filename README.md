@@ -1,14 +1,15 @@
 # Polymarket
 
-Monorepo for Polymarket trading projects.
+Trading tools for Polymarket.
 
-## Sub-projects
+## Projects
 
-### `finger_blaster/`
-FingerBlaster — Polymarket trading suite.
+| Project | Description |
+|---------|-------------|
+| [`finger_blaster/`](finger_blaster/) | Keyboard-driven terminal apps for trading Polymarket's BTC Up/Down markets |
 
-TurtleQuant has been extracted to its own repo: https://github.com/hollowc2/turtlequant
+TurtleQuant now lives in its own repository: [hollowc2/turtlequant](https://github.com/hollowc2/turtlequant).
 
 ## Setup
 
-Each sub-project has its own `README.md` with setup instructions.
+Each project has its own README with setup steps.
